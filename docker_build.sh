@@ -14,7 +14,6 @@ if [ "$(docker ps -a | grep -cw $CONTAINER)" -gt 0 ]; then
     docker rm -f $CONTAINER
 else
   echo "[---- Container with name: $CONTAINER  doesn't exist. ]"
-  docker create --name $CONTAINER #-v "$VOLUME_SRC:$VOLUME_DST" $IMAGE_FULL
 fi
 # # Build image if Dockerfile is modified
 docker build --rm -t "$IMAGE_FULL" .

@@ -1,0 +1,6 @@
+#standard ignores
+build/
+install/
+log/
+logs/
+
