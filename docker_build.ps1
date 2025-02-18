@@ -22,7 +22,7 @@ if ((docker ps -a --format '{{.Names}}' | Where-Object { $_ -eq $CONTAINER })) {
 }
 else {
     Write-Output "[---- Container with name: $CONTAINER doesn't exist. ]"
-    docker create --name $CONTAINER #-v "$VOLUME_SRC`:$VOLUME_DST" $IMAGE_FULL
+    # docker create --name $CONTAINER #-v "$VOLUME_SRC`:$VOLUME_DST" $IMAGE_FULL
 }
 
 # Build image if Dockerfile is modified
