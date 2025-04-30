@@ -14,17 +14,8 @@ import importlib
 
 import carb
 
-#from omni.isaac.core.articulations import Articulation 
 
-# Access the filesystem interface
-#fs = carb.filesystem
 
-# Check where the logs are stored  # Adjust based on known directories
-
-#print(f"Log path: {fs}")
-# Set global log verbosity to 'info' to see info/warning/debug logs
-
-#from isaacsim.robot.surface_gripper._surface_gripper import Surface_Gripper_Properties,  Surface_Gripper 
 
 @configclass
 class SurfaceGripperActionTerm(ActionTerm):
@@ -35,29 +26,33 @@ class SurfaceGripperActionTerm(ActionTerm):
     - Open action: Positive float or True.
     - Close action: Negative float or False.
     """
-    def is_grasping(self, object_name: str) -> torch.Tensor:
-            result = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
-            for i, gripper in enumerate(self._surface_grippers):
-                grasped = gripper.get_grasped_object()
-                if grasped and object_name in grasped.get_prim_path():
-                    result[i] = True
-            return result.int()
-        
 
-            # --- NEW ---
+
+
+    # Just add this method inside the SurfaceGripperActionTerm class (outside __init__)
+    def is_grasping(self, object_name: str) -> torch.Tensor:
+        result = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
+        for i, gripper in enumerate(self._surface_grippers):
+            grasped = gripper.get_grasped_object()
+            if grasped and object_name in grasped.get_prim_path():
+                result[i] = True
+        return result.int()
+    
+
+        # --- NEW ---
     def is_closed(self) -> torch.Tensor:
             """Bool per-env flag – True if gripper is closed."""
             closed = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
             for i, g in enumerate(self._surface_grippers):
                 closed[i] = g.is_closed()
             return closed
-    
+
+
+
+
+
     def __init__(self, cfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
-
-
-            # Just add this method inside the SurfaceGripperActionTerm class (outside __init__)
-    
 
         # --- DYNAMIC / LAZY IMPORT (post-extension-enable) ---
         try:
@@ -80,11 +75,8 @@ class SurfaceGripperActionTerm(ActionTerm):
 
             sgp = Surface_Gripper_Properties()
             sgp.parentPath = prim_path
-            print(prim_path)
-
-            #print("am i a robot", robot.is_valid())
             sgp.d6JointPath = f"{prim_path}/d6FixedJoint"
-            sgp.gripThreshold = 0.1
+            sgp.gripThreshold = 0.01
 
             sgp.bendAngle = 3.14*0.3
             sgp.offset = physics.Transform()
@@ -99,17 +91,23 @@ class SurfaceGripperActionTerm(ActionTerm):
             sgp.stiffness = 100
             sgp.damping = 100
             sgp.disableGravity = False
-            sgp.retryClose = False
+            sgp.retryClose = True
             gripper = Surface_Gripper()
             gripper.initialize(sgp)
 
             self._surface_grippers.append(gripper)
             self._gripper_prim_paths.append(prim_path)
 
-
+        
 
         self._raw_actions = torch.zeros(self._num_envs, 1, device=self.device)
         self._processed_actions = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
+
+
+
+
+
+    
 
     @property
     def action_dim(self) -> int:
@@ -158,4 +156,4 @@ class SurfaceGripperActionTerm(ActionTerm):
 class SurfaceGripperActionCfg(ActionTermCfg):
     class_type: type[ActionTerm] = SurfaceGripperActionTerm
     gripper_prim_path: str = MISSING
-    #surface_gripper: surface_gripper = S
+    

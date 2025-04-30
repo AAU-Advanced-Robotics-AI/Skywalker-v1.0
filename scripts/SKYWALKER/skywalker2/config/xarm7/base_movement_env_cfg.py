@@ -74,7 +74,7 @@ class BaseMoveSceneCfg(InteractiveSceneCfg):
 @configclass
 class ActionsCfg:
     arm_action: mdp.JointPositionActionCfg = mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=["joint.*"], scale=0.1, use_default_offset=True
+        asset_name="robot", joint_names=["panda_joint.*"], scale=0.1, use_default_offset=True
     )
     # gripper_action: mdp.SurfaceGripperActionCfg = mdp.SurfaceGripperActionCfg(
     #     asset_name="robot",
@@ -106,12 +106,12 @@ class ObservationsCfg:
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
-    
+    pass
 
     # Encourage the robot to move its base toward a target X,Y position
     robot_goal_tracking = RewTerm(
         func=mdp.robot_base_to_goal_distance,
-        weight=1.0,
+        weight=10.0,
         params={"goal_pos": [0.8, 0.0]},  # right side of base
     )
 
@@ -196,16 +196,6 @@ def clear_buffers(env, env_ids=None, **kwargs):
 class EventCfg:
     reset_scene  = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
     reset_caches = EventTerm(func=clear_buffers, mode="reset")
-    reset_arm_position = EventTerm(
-        func=mdp.reset_joints_by_scale,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=["joint1","joint2","joint3","joint4","joint5","joint6","joint7"]),
-            "position_range": (0.5, 1.5),
-            "velocity_range": (0, 0),
-        },
-    )
-
 
 @configclass
 class CurriculumCfg:
@@ -293,7 +283,7 @@ class BaseMoveEnvCfg(ManagerBasedRLEnvCfg):
 
 
         # Set up robot
-        self.scene.robot = XARM7_CFG.replace(
+        self.scene.robot = FRANKA_PANDA_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
             init_state=ArticulationCfg.InitialStateCfg(pos=(0.0, 0.0, 0.0))
         )

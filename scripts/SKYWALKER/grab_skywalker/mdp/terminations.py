@@ -22,32 +22,43 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def object_reached_goal(
+# def object_reached_goal(
+#     env: ManagerBasedRLEnv,
+#     command_name: str = "object_pose",
+#     threshold: float = 0.02,
+#     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+#     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+# ) -> torch.Tensor:
+#     """Termination condition for the object reaching the goal position.
+
+#     Args:
+#         env: The environment.
+#         command_name: The name of the command that is used to control the object.
+#         threshold: The threshold for the object to reach the goal position. Defaults to 0.02.
+#         robot_cfg: The robot configuration. Defaults to SceneEntityCfg("robot").
+#         object_cfg: The object configuration. Defaults to SceneEntityCfg("object").
+
+#     """
+#     # extract the used quantities (to enable type-hinting)
+#     robot: RigidObject = env.scene[robot_cfg.name]
+#     object: RigidObject = env.scene[object_cfg.name]
+#     command = env.command_manager.get_command(command_name)
+#     # compute the desired position in the world frame
+#     des_pos_b = command[:, :3]
+#     des_pos_w, _ = combine_frame_transforms(robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], des_pos_b)
+#     # distance of the end-effector to the object: (num_envs,)
+#     distance = torch.norm(des_pos_w - object.data.root_pos_w[:, :3], dim=1)
+
+#     # rewarded if the object is lifted above the threshold
+#     return distance < threshold
+
+def robot_reached_goal(
     env: ManagerBasedRLEnv,
-    command_name: str = "object_pose",
-    threshold: float = 0.02,
+    goal_pos: list[float] = [0.8, 0.0],
+    threshold: float = 0.05,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
 ) -> torch.Tensor:
-    """Termination condition for the object reaching the goal position.
-
-    Args:
-        env: The environment.
-        command_name: The name of the command that is used to control the object.
-        threshold: The threshold for the object to reach the goal position. Defaults to 0.02.
-        robot_cfg: The robot configuration. Defaults to SceneEntityCfg("robot").
-        object_cfg: The object configuration. Defaults to SceneEntityCfg("object").
-
-    """
-    # extract the used quantities (to enable type-hinting)
-    robot: RigidObject = env.scene[robot_cfg.name]
-    object: RigidObject = env.scene[object_cfg.name]
-    command = env.command_manager.get_command(command_name)
-    # compute the desired position in the world frame
-    des_pos_b = command[:, :3]
-    des_pos_w, _ = combine_frame_transforms(robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], des_pos_b)
-    # distance of the end-effector to the object: (num_envs,)
-    distance = torch.norm(des_pos_w - object.data.root_pos_w[:, :3], dim=1)
-
-    # rewarded if the object is lifted above the threshold
-    return distance < threshold
+    """Terminate when the robot base reaches a goal position."""
+    root_pos = env.scene[robot_cfg.name].data.root_pos_w[:, :2]
+    goal = torch.tensor(goal_pos, device=root_pos.device)
+    return torch.norm(root_pos - goal, dim=1) < threshold

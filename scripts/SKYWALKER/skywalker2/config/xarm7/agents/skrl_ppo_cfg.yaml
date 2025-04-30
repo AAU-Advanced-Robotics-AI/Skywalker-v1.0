@@ -7,11 +7,11 @@ models:
   separate: False
   policy:  # see gaussian_model parameters
     class: GaussianMixin
-    clip_actions: True
+    clip_actions: False
     clip_log_std: True
     min_log_std: -20.0
     max_log_std: 2.0
-    initial_log_std: 1.0
+    initial_log_std: 0.0
     network:
       - name: net
         input: STATES
@@ -36,44 +36,47 @@ memory:
   memory_size: -1  # automatically determined (same as agent:rollouts)
 
 
+
 # PPO agent configuration (field names are from PPO_DEFAULT_CONFIG)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html
 agent:
   class: PPO
-  rollouts: 24 # Number of episodes run before updating policy
-  learning_epochs: 8 # Number of times the agent will iterate over the collected rollouts to update policy
-  mini_batches: 8 # controls how often the agent gets to update its parameters based on different parts of the data.
+  rollouts: 8 # Number of episodes run before updating policy
+  learning_epochs: 4 # Number of times the agent will iterate over the collected rollouts to update policy
+  mini_batches: 64 # controls how often the agent gets to update its parameters based on different parts of the data.
   discount_factor: 0.99 # how much the agent cares about future rewards vs. immediate rewards.
-  lambda: 0.95 #?
-  learning_rate: 1.0e-04 # how much the model updates its parameters with each training step.
+  lambda: 0.97 #?
+  learning_rate: 5.0e-04 # how much the model updates its parameters with each training step.
   learning_rate_scheduler: KLAdaptiveLR # adjusts the learning rate during training based on the KL divergence between the old and new policy
   learning_rate_scheduler_kwargs:
-    kl_threshold: 0.01
+    kl_threshold: 0.015
   state_preprocessor: RunningStandardScaler
   state_preprocessor_kwargs: null
   value_preprocessor: RunningStandardScaler
   value_preprocessor_kwargs: null
   random_timesteps: 0
   learning_starts: 0
-  grad_norm_clip: 1.0 # clips the gradients to a maximum value to prevent them from exploding
+  grad_norm_clip: 0.8 # clips the gradients to a maximum value to prevent them from exploding
   ratio_clip: 0.2 # limit the difference between the old and new policy updates,
   value_clip: 0.2 #clips the value function estimates during training
   clip_predicted_values: True #clips the predicted value function to avoid large updates.
-  entropy_loss_scale: 0.01 #Controls how much the agent is encouraged to explore.
+  entropy_loss_scale: 0.004 #Controls how much the agent is encouraged to explore.
   value_loss_scale: 1.0 # determines how much the value loss influences the overall loss.
   kl_threshold: 0.0
-  rewards_shaper_scale: 0.05 #If rewards are too small to be effective, increase this value (e.g., from 1.0 to 2.0).
+  rewards_shaper_scale: 0.02 #If rewards are too small to be effective, increase this value (e.g., from 1.0 to 2.0).
   time_limit_bootstrap: False
   # logging and checkpoint
   experiment:
-    directory: "grab_skywalker"
+    directory: "skywalker_main"
     experiment_name: ""
-    write_interval: auto
-    checkpoint_interval: auto
+    write_interval: 120
+    checkpoint_interval: 10000
     wandb: True
 # Sequential trainer
 # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
 trainer:
   class: SequentialTrainer
-  timesteps: 36000
+  timesteps: 1000000
   environment_info: log
+
+

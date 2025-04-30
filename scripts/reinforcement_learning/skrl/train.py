@@ -65,11 +65,11 @@ if not hasattr(args_cli, "exts") or args_cli.exts is None:
     args_cli.exts = []
 args_cli.exts.append("isaacsim.robot.surface_gripper")
 print("[DEBUG] Extensions to load:", args_cli.exts)
-#args_cli.kit_args = (
-#    "--/log/level=warn "
-#    "--/log/outputStreamLevel=warn "
-#    "--/log/fileLogLevel=warn"
-#)
+args_cli.kit_args = (
+    "--/log/level=warn "
+    "--/log/outputStreamLevel=warn "
+    "--/log/fileLogLevel=warn"
+)
 # --------------------------------------------------------------------
 # 3) Launch Isaac Sim via AppLauncher
 # --------------------------------------------------------------------
