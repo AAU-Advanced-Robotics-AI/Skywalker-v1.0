@@ -33,10 +33,14 @@ simulation_app = app_launcher.app
 
 from isaaclab.sim import SimulationCfg, SimulationContext
 
+# Configuration
+##
+
+
+
 
 def main():
     """Main function."""
-
     # Initialize the simulation context
     sim_cfg = SimulationCfg(dt=0.01)
     sim = SimulationContext(sim_cfg)

@@ -13,6 +13,7 @@ a more user-friendly way.
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import sys
 
 from isaaclab.app import AppLauncher
 
@@ -81,6 +82,13 @@ if args_cli.ml_framework.startswith("torch"):
     from skrl.utils.runner.torch import Runner
 elif args_cli.ml_framework.startswith("jax"):
     from skrl.utils.runner.jax import Runner
+    
+
+sys.path.append('/home/bruno/IsaacLab/scripts/SKYWALKER')
+import grab_skywalker.config.xarm7
+import reach_skywalker.config.xarm7
+import reach.config.franka
+import skywalker_main.config.xarm7
 
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.dict import print_dict

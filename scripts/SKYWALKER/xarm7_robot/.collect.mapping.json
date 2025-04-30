@@ -1,0 +1,11 @@
+{
+    "version": "1.0",
+    "file_records": [
+        {
+            "source_url": "/home/bruno/Desktop/xarm7_robot_base.usd",
+            "source_hash": "67617d3b3e766a70d60e2334d2f530819868eda5",
+            "target_url": "./xarm7_robot_base.usd",
+            "target_hash": "3902681772560e46d4b1f9b400c04e1417435b5f"
+        }
+    ]
+}

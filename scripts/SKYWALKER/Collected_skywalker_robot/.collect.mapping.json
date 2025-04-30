@@ -1,0 +1,11 @@
+{
+    "version": "1.0",
+    "file_records": [
+        {
+            "source_url": "/home/bruno/Desktop/skywalker_robot_2.0.usd",
+            "source_hash": "cd4ad947da4145207f129ebcf6592c4ba2cc46f4",
+            "target_url": "./skywalker_robot_2.0.usd",
+            "target_hash": "c72c1a8c7dc18cbf0240a7be3b17723a025c9857"
+        }
+    ]
+}
