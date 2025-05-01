@@ -98,7 +98,7 @@ class SurfaceGripperActionTerm(ActionTerm):
             sgp.torqueLimit = 50000
             sgp.stiffness = 100
             sgp.damping = 100
-            sgp.disableGravity = False
+            sgp.disableGravity = True
             sgp.retryClose = False
             gripper = Surface_Gripper()
             gripper.initialize(sgp)

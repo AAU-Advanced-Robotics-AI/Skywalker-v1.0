@@ -19,7 +19,7 @@ from grab_skywalker.skywalker_grab_env import GrabEnvCfg
 from grab_skywalker.xarm7 import XARM7_CFG, XARM7_HIGH_PD_CFG
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg, MassPropertiesCfg
-from isaaclab.assets import RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg, RigidObject
 from isaaclab.sensors import FrameTransformerCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
@@ -67,18 +67,42 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         #self.commands.object_pose.body_name = "link_eef"
 
 
-        self.scene.object = AssetBaseCfg(
+        # self.scene.object = AssetBaseCfg(
+        #     prim_path="{ENV_REGEX_NS}/Object",
+        #     spawn=sim_utils.CuboidCfg(
+        #         size=(0.1, 0.1, 0.1),
+        #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+        #             max_depenetration_velocity=1.0,
+        #             kinematic_enabled=False,             # <- dynamic
+        #             enable_gyroscopic_forces=True,
+        #             disable_gravity=True                 # <- stays put
+        #         ),
+        #         mass_props=sim_utils.MassPropertiesCfg(mass=1.0),  # Can be low if it's not touched
+        #         physics_material=sim_utils.RigidBodyMaterialCfg(),
+        #         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.9, 0.0, 0.0)),
+        #         collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True)
+        #     ),
+        #     init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.7)),
+        # )
+
+
+        self.scene.object = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Object",
-            spawn=sim_utils.CuboidCfg(
+            spawn=CuboidCfg(
                 size=(0.1, 0.1, 0.1),
-                rigid_props=sim_utils.RigidBodyPropertiesCfg(max_depenetration_velocity=1.0, kinematic_enabled=True, enable_gyroscopic_forces=True, disable_gravity=False),
-                mass_props=sim_utils.MassPropertiesCfg(mass=1000.0),
+                rigid_props=RigidBodyPropertiesCfg(
+                    max_depenetration_velocity=0.001,
+                    kinematic_enabled=False,
+                    disable_gravity=True
+                ),
+                mass_props=MassPropertiesCfg(mass=10000.0),
+                collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
                 physics_material=sim_utils.RigidBodyMaterialCfg(),
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.9, 0.0, 0.0)),
-                collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True)
             ),
-            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.7)),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, 0.7))
         )
+
         
         goal_xy = [0.6, 0.5]
         goal_z = 0.47  # same as robot base Z height

@@ -116,15 +116,20 @@ def object_ee_distance(
     obj_pos_base, _ = subtract_frame_transforms(root_pos, root_quat, obj_pos_w)
     ee_pos_base, _ = subtract_frame_transforms(root_pos, root_quat, ee_pos_w)
 
+    # Print per-environment object/EE base positions
+    # print("\n[DEBUG] EE and Object positions (base frame) for all envs:")
+    # for i in range(env.num_envs):
+    #     print(f"Env {i:3d} | EE: {ee_pos_base[i].cpu().numpy()} | Object: {obj_pos_base[i].cpu().numpy()}")
+
     # Compute distance in base frame
     dist = torch.norm(obj_pos_base - ee_pos_base, dim=1)
 
-    # Optional debug
-    print(f"[DEBUG] env 0 - obj_pos (base): {obj_pos_base[0].cpu().numpy()}, ee_pos (base): {ee_pos_base[0].cpu().numpy()}")
-    print(f"[DIST DEBUG] Min: {dist.min():.3f} Max: {dist.max():.3f} Mean: {dist.mean():.3f}")
+    # Summary stats
+    #print(f"\n[DIST DEBUG] Min: {dist.min():.3f} Max: {dist.max():.3f} Mean: {dist.mean():.3f}")
 
-    # Reward: exp decay
+    # Reward: exponential decay
     return torch.exp(-dist / std)
+
 
 
 
