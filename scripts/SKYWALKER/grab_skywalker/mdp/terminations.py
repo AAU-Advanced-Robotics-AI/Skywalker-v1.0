@@ -54,11 +54,12 @@ if TYPE_CHECKING:
 
 def robot_reached_goal(
     env: ManagerBasedRLEnv,
-    goal_pos: list[float] = [0.8, 0.0],
     threshold: float = 0.05,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
 ) -> torch.Tensor:
-    """Terminate when the robot base reaches a goal position."""
+    """Terminate when the robot base reaches its per-env goal marker."""
     root_pos = env.scene[robot_cfg.name].data.root_pos_w[:, :2]
-    goal = torch.tensor(goal_pos, device=root_pos.device)
-    return torch.norm(root_pos - goal, dim=1) < threshold
+    goal_pos = env.scene[goal_cfg.name].data.root_pos_w[:, :2]
+    return torch.norm(root_pos - goal_pos, dim=1) < threshold
+

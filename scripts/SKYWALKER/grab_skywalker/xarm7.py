@@ -88,6 +88,16 @@ XARM7_CFG = ArticulationCfg(
             stiffness=800.0,
             damping=40.0,
         ),
+
+        # # xarm7.py  ── actuator section
+        # "arm": ImplicitActuatorCfg(
+        #     joint_names_expr = [".*"],
+        #     velocity_limit    = 2.0,        # 100 rad/s → 2 rad/s
+        #     effort_limit      = 87.0,
+        #     stiffness         = 200.0,      # 800 → 200
+        #     damping           = 10.0,       # 40  → 10
+        # ),
+
         # "xarm7_actuator_1": ImplicitActuatorCfg(
         #     joint_names_expr=["joint1"],
         #     effort_limit_sim=87.0,
@@ -140,7 +150,7 @@ XARM7_CFG = ArticulationCfg(
     },
     #soft_joint_pos_limit_factor=1.0,
 )
-"""Configuration of Franka Emika Panda robot."""
+
 
 
 XARM7_HIGH_PD_CFG = XARM7_CFG.copy()

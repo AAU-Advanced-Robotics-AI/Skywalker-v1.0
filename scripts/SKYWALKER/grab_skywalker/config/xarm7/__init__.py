@@ -15,8 +15,20 @@ from . import agents
 # Joint Position Control
 ##
 
+
 gym.register(
     id="Isaac-Grab-Skywalker-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.joint_pos_env_cfg:SkywalkerGrabEnvCfg",
+        "skrl_sac_cfg_entry_point": f"{agents.__name__}:skrl_sac_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Isaac-Grab-Skywalker-PPO-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
@@ -28,7 +40,7 @@ gym.register(
 )
 
 gym.register(
-    id="Isaac-Grab-Skywalker-Play-v0",
+    id="Isaac-Grab-Skywalker-Play-PPO-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={

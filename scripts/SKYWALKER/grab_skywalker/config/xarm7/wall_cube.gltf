@@ -1,0 +1,168 @@
+{
+  "asset": {
+    "generator": "Exported from Omniverse GLTF Converter.",
+    "version": "2.0"
+  },
+  "extensions": {
+    "KHR_lights_punctual": {
+      "lights": [
+        {
+          "color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "intensity": 0.0003141592653589793,
+          "name": "DomeLight",
+          "spot": {
+            "innerConeAngle": 0.0,
+            "outerConeAngle": 0.7853981634
+          },
+          "type": "spot"
+        },
+        {
+          "color": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "intensity": 251.32741228718345,
+          "name": "DistantLight",
+          "type": "directional"
+        }
+      ]
+    }
+  },
+  "extensionsRequired": [
+    "KHR_lights_punctual"
+  ],
+  "extensionsUsed": [
+    "KHR_lights_punctual"
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "name": "World",
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "children": [
+        2
+      ],
+      "name": "OmniKit_Viewport_LightRig",
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "children": [
+        3,
+        4
+      ],
+      "name": "Lights",
+      "rotation": [
+        -0.4999999999999999,
+        -0.5,
+        -0.5,
+        0.5000000000000001
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "extensions": {
+        "KHR_lights_punctual": {
+          "light": 0
+        }
+      },
+      "name": "DomeLight",
+      "rotation": [
+        0.0,
+        0.0,
+        0.5172803730188718,
+        0.8558159940603219
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        3.0500000000000003
+      ]
+    },
+    {
+      "extensions": {
+        "KHR_lights_punctual": {
+          "light": 1
+        }
+      },
+      "name": "DistantLight",
+      "rotation": [
+        0.17670354420260315,
+        0.426600092933318,
+        0.8194911538891423,
+        0.33944435018566016
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        0.0,
+        0.0,
+        3.0500000000000003
+      ]
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "DefaultScene",
+      "nodes": [
+        0
+      ]
+    }
+  ]
+}

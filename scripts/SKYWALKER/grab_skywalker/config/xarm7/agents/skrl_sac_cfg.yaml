@@ -1,0 +1,85 @@
+# grab_skywalker/config/xarm7/agents/skrl_sac_cfg.yaml
+seed: 42
+
+# ───────────────────────────  MODELS  ────────────────────────────
+models:
+  separate: true        # actor + twin critics
+
+  # -----  Actor π  ------------------------------------------------
+  policy: &Actor
+    class: GaussianMixin
+    clip_actions: true
+    clip_log_std: true
+    min_log_std: -2.0
+    max_log_std:  2.0
+    initial_log_std: -2.3
+    network:
+      - name: net
+        input: STATES
+        layers: [1024, 1024]
+        activations: relu
+    output: ACTIONS                # mean of Gaussian
+
+  # -----  Critic Q1 / Q2  ----------------------------------------
+  qnetwork_1: &Critic
+    class: DeterministicMixin
+    network:
+      - name: net
+        input: STATES_ACTIONS
+        layers: [1024, 1024]
+        activations: relu
+    output: ONE
+
+  qnetwork_2:       *Critic        # identical twin
+
+  # -----  Target nets (𝜏 = 0.005 soft update) --------------------
+  target_policy:     *Actor
+  target_qnetwork_1: *Critic
+  target_qnetwork_2: *Critic
+
+# ───────────────────────────  REPLAY BUFFER  ─────────────────────
+memory:
+  class: RandomMemory              # skrl’s replay buffer
+  memory_size: 1000000             # matches Hydra “capacity”
+
+# ───────────────────────────  SAC AGENT  ─────────────────────────
+agent:
+  class: SAC
+
+  # Training hyper-params
+  gradient_steps:            1     # per env-step (update-ratio 1)
+  batch_size:              256
+  discount_factor:        0.99     # γ
+  polyak:                0.005     # τ for target soft-update
+
+  # Optimisers
+  actor_learning_rate:     0.0001
+  critic_learning_rate:    0.0001
+  entropy_learning_rate:   0.0001
+
+  # Entropy (temperature α)
+  learn_entropy:           true
+  initial_entropy_value:   0.1     # matches `init_temperature`
+  target_entropy:          auto
+
+  # Exploration & learning schedule
+  random_timesteps:  500   # but
+  learning_starts:   500
+  exploration_noise: normal  # instead of uniform  (skrl ≥1.5.0)
+
+  # Misc.
+  grad_norm_clip:            1.0
+
+  # Logging / checkpoints
+  experiment:
+    directory: grab_skywalker
+    experiment_name: sac_skywalker
+    write_interval: 1000          # steps between TensorBoard / W&B writes
+    checkpoint_interval: 10000
+    wandb: true
+
+# ───────────────────────────  TRAINER  ───────────────────────────
+trainer:
+  class: SequentialTrainer        # Off-policy trainers were unified
+  timesteps: 500000               # total env steps
+  environment_info: log

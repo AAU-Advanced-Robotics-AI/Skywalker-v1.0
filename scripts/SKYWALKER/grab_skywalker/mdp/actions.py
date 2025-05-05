@@ -3,12 +3,16 @@
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
 
+
+
 from dataclasses import MISSING
 import torch
 from typing import Sequence, List
 
 import omni.physics.tensors as physics
 
+from gymnasium.spaces import Box
+import numpy as np     # add this import at top of file
 from isaaclab.envs import ManagerBasedEnv
 import importlib
 
@@ -25,6 +29,7 @@ import carb
 # Set global log verbosity to 'info' to see info/warning/debug logs
 
 #from isaacsim.robot.surface_gripper._surface_gripper import Surface_Gripper_Properties,  Surface_Gripper 
+
 
 @configclass
 class SurfaceGripperActionTerm(ActionTerm):
@@ -51,6 +56,12 @@ class SurfaceGripperActionTerm(ActionTerm):
             for i, g in enumerate(self._surface_grippers):
                 closed[i] = g.is_closed()
             return closed
+    
+    def get_rl_action_space(self):
+        """Binary gripper: 0 = open, 1 = close (float32 so SAC is happy)."""
+        return Box(low=np.array([0.0],  dtype=np.float32),
+                high=np.array([1.0],  dtype=np.float32),
+                dtype=np.float32)
     
     def __init__(self, cfg, env: ManagerBasedEnv):
         super().__init__(cfg, env)
@@ -80,7 +91,7 @@ class SurfaceGripperActionTerm(ActionTerm):
 
             sgp = Surface_Gripper_Properties()
             sgp.parentPath = prim_path
-            print(prim_path)
+            #print(prim_path)
 
             #print("am i a robot", robot.is_valid())
             sgp.d6JointPath = f"{prim_path}/d6FixedJoint"
@@ -124,14 +135,31 @@ class SurfaceGripperActionTerm(ActionTerm):
         return self._processed_actions
 
     def process_actions(self, actions: torch.Tensor):
-        """Converts raw actions into open/close binary flags."""
-        self._raw_actions[:] = actions
+        
+        """
+        Convert the continuous action in the range [-1, 1] produced by the
+        policy into a binary open / close command for the surface-gripper.
+
+            (-1 …  0]  →  open   (False)
+            ( 0  …  1]  →  close (True)
+
+        If a Boolean tensor is provided (e.g. by a scripted reset routine),
+        it is passed through unchanged.
+        """
+        # keep the incoming tensor (NaNs → 0) for logging / replay
+        self._raw_actions[:] = torch.nan_to_num(actions)
+
+        # scripted Boolean commands bypass thresholding
         if actions.dtype == torch.bool:
-            # True = close, False = open
-            self._processed_actions[:] = actions.view(-1) == 0
-        else:
-            # Close if action < 0, else open
-            self._processed_actions[:] = actions.view(-1) < 0
+            self._processed_actions[:] = actions.view(-1)
+            return
+
+        # numeric input from SAC: threshold at 0
+        self._processed_actions[:] = (actions.view(-1) > 0).to(torch.bool)
+
+            # ✴︎ DEBUG
+        #if torch.isnan(actions).any():
+        print("[GRIPPER]  input →", actions.cpu())
 
     def apply_actions(self):
         """Apply open/close commands to each gripper based on processed action."""

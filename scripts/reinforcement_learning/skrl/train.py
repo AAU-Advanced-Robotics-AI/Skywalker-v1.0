@@ -42,7 +42,7 @@ parser.add_argument(
     "--algorithm",
     type=str,
     default="PPO",
-    choices=["AMP", "PPO", "IPPO", "MAPPO"],
+    choices=["AMP", "PPO", "IPPO", "MAPPO", "SAC"],
     help="The RL algorithm used for training the skrl agent.",
 )
 
@@ -137,7 +137,6 @@ import skywalker_main.config.xarm7
 
 
 import sys
-print("Current Python Path:", sys.path)
 
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
@@ -217,6 +216,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     env = SkrlVecEnvWrapper(env, ml_framework=args_cli.ml_framework)
+
+
+    print("First raw action sample from the (wrapped) env:",
+        env.action_space.sample())
+
     runner = Runner(env, agent_cfg)
 
     if resume_path:
