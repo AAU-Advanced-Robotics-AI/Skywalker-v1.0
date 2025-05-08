@@ -43,11 +43,20 @@ class SurfaceGripperActionTerm(ActionTerm):
     def is_grasping(self, object_name: str) -> torch.Tensor:
             result = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
             for i, gripper in enumerate(self._surface_grippers):
-                grasped = gripper.get_grasped_object()
+                grasped = gripper.get_grasped_body()
                 if grasped and object_name in grasped.get_prim_path():
                     result[i] = True
             return result.int()
         
+
+    def get_grasping_mask(self) -> torch.Tensor:
+        """Returns 1 for each env where the gripper is grasping something."""
+        return torch.tensor(
+            [g.is_closed() for g in self._surface_grippers],
+            dtype=torch.float32,
+            device=self.device,
+    )
+
 
             # --- NEW ---
     def is_closed(self) -> torch.Tensor:
@@ -56,6 +65,15 @@ class SurfaceGripperActionTerm(ActionTerm):
             for i, g in enumerate(self._surface_grippers):
                 closed[i] = g.is_closed()
             return closed
+    
+    def is_grasping_any(self) -> torch.Tensor:
+        """
+        Return tensor of shape (num_envs,) indicating if any object is being grasped.
+        """
+        grasping = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
+        for i, gripper in enumerate(self._surface_grippers):
+            grasping[i] = gripper.get_grasped_object() is not None
+        return grasping
     
     def get_rl_action_space(self):
         """Binary gripper: 0 = open, 1 = close (float32 so SAC is happy)."""
@@ -85,6 +103,10 @@ class SurfaceGripperActionTerm(ActionTerm):
         self._surface_grippers: List[Surface_Gripper] = []
         self._gripper_prim_paths = []
         self._num_envs = self.num_envs
+        self._offset = []
+        self._rot_offset = []
+        self._grip_threshold = []
+        self._shared_gripper_state_timer = torch.zeros(self._num_envs, dtype=torch.long, device=self.device)
 
         for env_id in range(self._num_envs):
             prim_path = cfg.gripper_prim_path.format(ENV_REGEX_NS=f"/World/envs/env_{env_id}")
@@ -95,15 +117,15 @@ class SurfaceGripperActionTerm(ActionTerm):
 
             #print("am i a robot", robot.is_valid())
             sgp.d6JointPath = f"{prim_path}/d6FixedJoint"
-            sgp.gripThreshold = 0.1
+            sgp.gripThreshold = cfg.grip_threshold
 
             sgp.bendAngle = 3.14*0.3
             sgp.offset = physics.Transform()
-            sgp.offset.p.x = 0.0
-            sgp.offset.p.y = 0.0
-            sgp.offset.p.z = 0.01
+            sgp.offset.p.x = cfg.offset[0]
+            sgp.offset.p.y = cfg.offset[1]
+            sgp.offset.p.z = cfg.offset[2]
 
-            sgp.offset.r =  [0, -0.707,0 ,0.707]
+            sgp.offset.r =  cfg.rot_offset #[0, -0.707,0 ,0.707]
             #sgp.offset.r = [0, 0.7171,0,0.7171]
             sgp.forceLimit = 50000
             sgp.torqueLimit = 50000
@@ -118,7 +140,7 @@ class SurfaceGripperActionTerm(ActionTerm):
             self._gripper_prim_paths.append(prim_path)
 
 
-
+        self._gripper_timers = torch.zeros(self._num_envs, dtype=torch.long, device=self.device)
         self._raw_actions = torch.zeros(self._num_envs, 1, device=self.device)
         self._processed_actions = torch.zeros(self._num_envs, dtype=torch.bool, device=self.device)
 
@@ -135,7 +157,8 @@ class SurfaceGripperActionTerm(ActionTerm):
         return self._processed_actions
 
     def process_actions(self, actions: torch.Tensor):
-        
+
+
         """
         Convert the continuous action in the range [-1, 1] produced by the
         policy into a binary open / close command for the surface-gripper.
@@ -159,31 +182,64 @@ class SurfaceGripperActionTerm(ActionTerm):
 
             # ✴︎ DEBUG
         #if torch.isnan(actions).any():
-        print("[GRIPPER]  input →", actions.cpu())
+        #print("[GRIPPER]  input →", actions.cpu())
 
     def apply_actions(self):
         """Apply open/close commands to each gripper based on processed action."""
+        # increment timers every step
+        self._gripper_timers += 1
+        self._shared_gripper_state_timer += 1
+
         to_close = torch.nonzero(self._processed_actions, as_tuple=False).squeeze(-1)
         to_open = torch.nonzero(~self._processed_actions, as_tuple=False).squeeze(-1)
 
         for i in to_close:
-            gripper = self._surface_grippers[int(i.item())]
+            env_id = int(i.item())
+            if self._gripper_timers[env_id] < 50:  # wait first 30 steps (~2 seconds)
+                continue
+            gripper = self._surface_grippers[env_id]
             if not gripper.is_closed():
-                result = gripper.close()
+                gripper.close()
             gripper.update()
 
         for i in to_open:
-            gripper = self._surface_grippers[int(i.item())]
-            result = gripper.open()
+            env_id = int(i.item())
+            if self._gripper_timers[env_id] < 50:
+                continue
+            gripper = self._surface_grippers[env_id]
+            gripper.open()
             gripper.update()
 
+
+    # def apply_actions(self):
+    #     """Force close all gripper2 for testing."""
+    #     for i in range(self._num_envs):
+    #         gripper = self._surface_grippers[i]
+    #         gripper.close()
+    #         gripper.update()
+
+
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
-        # Reset the actions
+        # Reset action buffers and timers
         self._raw_actions[env_ids] = 0.0
+        self._processed_actions[env_ids] = False
+        self._gripper_timers[env_ids] = 0
+        self._shared_gripper_state_timer[env_ids] = 0
+
+
+        # Force-open each gripper to fully reset its physical state
+        for env_id in env_ids:
+            gripper = self._surface_grippers[int(env_id)]
+            if gripper.is_closed():
+                gripper.open()
+            gripper.update()
 
 
 @configclass
 class SurfaceGripperActionCfg(ActionTermCfg):
     class_type: type[ActionTerm] = SurfaceGripperActionTerm
     gripper_prim_path: str = MISSING
+    offset: list[float] = MISSING
+    rot_offset: list[float] = MISSING
+    grip_threshold: float = MISSING
     #surface_gripper: surface_gripper = S

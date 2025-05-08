@@ -59,6 +59,21 @@ def object_position_in_robot_root_frame(
     return obj_pos_b
 
 
+def gripper_contact_state(env: ManagerBasedRLEnv) -> torch.Tensor:
+    term1 = env.action_manager.get_term("gripper_action")
+    term2 = env.action_manager.get_term("gripper_action2")
+
+    state1 = term1.get_grasping_mask()
+    state2 = term2.get_grasping_mask()
+
+    print(f"[Debug] Gripper states (env 0): {state1[0].item()}, {state2[0].item()}")
+
+    return torch.stack([state1, state2], dim=1)
+
+
+
+
+
 
 
 # def object_position_in_robot_root_frame(

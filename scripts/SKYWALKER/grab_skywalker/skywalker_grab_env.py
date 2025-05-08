@@ -73,7 +73,7 @@ from typing import Optional
 
 from xarm7 import XARM7_CFG, XARM7_HIGH_PD_CFG
 
-from grab_skywalker.mdp.reset_goal_away_from_origin import reset_goal_away_from_origin
+from grab_skywalker.mdp.reset_goal_away_from_origin import reset_goal_within_reach
 
 
 
@@ -83,7 +83,14 @@ class SkywalkerGrabSceneCfg(InteractiveSceneCfg):
 
     
     # ground plane
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
+    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg(
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            # static_friction=0.1,
+            # dynamic_friction=0.1,
+            # # ensure combine with any other material yields zero
+            # friction_combine_mode="min",
+        )
+        ))
 
     # lights
     dome_light = AssetBaseCfg(
@@ -106,6 +113,8 @@ class SkywalkerGrabSceneCfg(InteractiveSceneCfg):
     goal_marker: AssetBaseCfg | RigidObjectCfg | DeformableObjectCfg = MISSING
 
     cube: FrameTransformerCfg = MISSING
+
+    cylinder_frame: FrameTransformerCfg = MISSING
     
 
 
@@ -126,6 +135,7 @@ class ActionsCfg:
     arm_action: mdp.JointPositionActionCfg | mdp.DifferentialInverseKinematicsActionCfg = MISSING
     
     gripper_action: mdp.SurfaceGripperActionCfg = MISSING
+    gripper_action2: mdp.SurfaceGripperActionCfg = MISSING
 
 
 
@@ -145,6 +155,7 @@ class ObservationsCfg:
         joint_vel_rel = ObsTerm(func=mdp.joint_vel_rel)
         actions = ObsTerm(func=mdp.last_action)
         object_position = ObsTerm(func=mdp.object_position_in_robot_root_frame)
+        gripper_contact = ObsTerm(func=mdp.gripper_contact_state)
 
 
         def __post_init__(self) -> None:
@@ -173,20 +184,35 @@ class EventCfg:
         },
     )
 
+
     reset_goal = EventTerm(
-        func=reset_goal_away_from_origin,
+        func=reset_goal_within_reach,
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("goal_marker"),
-            "pose_range": {
-                "x": (-0.3, 0.3),
-                "y": (-0.45, 0.45),
-                "z": (0.47, 0.47),
-            },
-            "velocity_range": {},  # still required, even if unused here
-            "min_radius": 0.3,
+            "EEL": 0.068,   # adjust based on your robot
+            "LA": 0.70,
+            "HW": 0.47,
+            "HR": 0.26+0.47,
+            "RR": 0.73/2,
+            "z": 0.47,
         },
     )
+
+    # reset_goal = EventTerm(
+    #     func=reset_goal_away_from_origin,
+    #     mode="reset",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("goal_marker"),
+    #         "pose_range": {
+    #             "x": (-0.3, 0.3),
+    #             "y": (-0.45, 0.45),
+    #             "z": (0.47, 0.47),
+    #         },
+    #         "velocity_range": {},  # still required, even if unused here
+    #         "min_radius": 0.3,
+    #     },
+    # )
 
 
     # reset_goal = EventTerm(
@@ -195,8 +221,8 @@ class EventCfg:
     #     params={
     #         "asset_cfg": SceneEntityCfg("goal_marker"),
     #         "pose_range": {
-    #             "x": (-0.5, 0.5),
-    #             "y": (-0.5, 0.5),
+    #             "x": (0.0, 0.0),
+    #             "y": (0.5, 0.5),
     #             "z": (0.47, 0.47),
     #         },
     #         "velocity_range": {
@@ -210,19 +236,17 @@ class EventCfg:
     #     },
     # )
 
-@configclass
 
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
-   # Encourage the robot to move its base toward a target X,Y position
+    
     robot_goal_tracking = RewTerm(
         func=mdp.robot_base_to_goal_distance,
         weight=0.0,
         params={}, 
     )
 
-    # Reward for end-effector reaching object (Z offset applied inside the func)
     reaching_object = RewTerm(
         func=mdp.object_ee_distance,
         weight=10,
@@ -230,42 +254,57 @@ class RewardsCfg:
     )
 
     self_grasp = RewTerm(
-        func = mdp.self_grasp_penalty,
-        weight = 5.0     # already negative inside
+        func=mdp.self_grasp_penalty,
+        weight=1.0,
+        params={}
     )
 
     ee_alignment = RewTerm(
         func=mdp.ee_cube_orientation_alignment,
-        weight=2.0  # Start small, increase if needed
+        weight=2.0,
+        params={}
     )
 
     ee_approach_alignment = RewTerm(
         func=mdp.ee_approach_alignment_in_base,
-        weight=2.0,  # You can tune this weight
+        weight=2.0,
+        params={}
     )
 
-
     grab_cube = RewTerm(
-            func=mdp.is_grasping_fixed_object,  # <- simple call now
-            weight=5.0,
-            params={}  # <- empty because function no longer expects object_cfg
+        func=mdp.is_grasping_fixed_object,
+        weight=5.0,
+        params={}
+    )
+
+    sim_grab_penalty = RewTerm(
+        func=mdp.simultaneous_gripper_penalty,
+        weight=0.0,
+        params={}
+    )
+
+    grab_floor = RewTerm(
+        func=mdp.is_gripper2_closed_around_goal,
+        weight=0.0,
+        params={"tol": 0.15}
     )
 
     action_rate = RewTerm(
         func=mdp.action_rate_l2,
         weight=1e-5,
+        params={}
     )
+
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
         weight=1e-5,
-        params={"asset_cfg": SceneEntityCfg("robot")},
+        params={"asset_cfg": SceneEntityCfg("robot")}
     )
 
-    # Penalize self-collision if detected
     self_collision = RewTerm(
         func=mdp.self_collision_penalty,
         weight=1.0,
-        params={"asset_cfg": SceneEntityCfg("robot")},
+        params={"asset_cfg": SceneEntityCfg("robot")}
     )
 
 
@@ -283,13 +322,6 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    # action_rate = CurrTerm(
-    #     func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": -1e-1, "num_steps": 10000}
-    # )
-
-    # joint_vel = CurrTerm(
-    #     func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": -1e-1, "num_steps": 10000}
-    # )
     self_grasp = CurrTerm(
         func=mdp.modify_reward_weight,
         params={"term_name": "self_grasp", "weight": 5.0, "num_steps": 5000}
@@ -302,10 +334,18 @@ class CurriculumCfg:
 
     robot_goal_tracking = CurrTerm(
         func=mdp.modify_reward_weight,
-        params={"term_name": "robot_goal_tracking", "weight": 10.0, "num_steps": 5000}
+        params={"term_name": "robot_goal_tracking", "weight": 20.0, "num_steps": 5000}
     )
 
+    grab_floor = CurrTerm(
+        func=mdp.modify_reward_weight,
+        params={"term_name": "grab_floor", "weight": 20.0, "num_steps": 5000}
+    )
 
+    sim_grab_penalty = CurrTerm(
+        func=mdp.modify_reward_weight,
+        params={"term_name": "sim_grab_penalty", "weight": 1.0, "num_steps": 2000}
+    )
 
 
 
@@ -313,7 +353,7 @@ class CurriculumCfg:
 class GrabEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the cartpole environment."""
     # Scene settings
-    scene: SkywalkerGrabSceneCfg = SkywalkerGrabSceneCfg(num_envs=1024, env_spacing=4.0)
+    scene: SkywalkerGrabSceneCfg = SkywalkerGrabSceneCfg(num_envs=1024, env_spacing=6.0)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()

@@ -27,10 +27,15 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # ── robot (unchanged) ───────────────────────────────────────
         self.scene.robot = XARM7_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
-            init_state=ArticulationCfg.InitialStateCfg(pos=(0, 0, 0.47)),
+            init_state=ArticulationCfg.InitialStateCfg(
+                pos=(0, 0, 0.5),
+                #rot=(0.0, 0.0, 0.0, 1.0),
+                joint_pos={},        # ← inside InitialStateCfg
+                joint_vel={},        # ← inside InitialStateCfg
+                
+            ),
         )
 
 # inside your __post_init__ of SkywalkerGrabEnvCfg, replace your wall_object/articulation block with:
@@ -46,7 +51,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
                 ),
             ),
             init_state=ArticulationCfg.InitialStateCfg(
-                pos=(0.8, 0, 0.5),
+                pos=(0.8, 0, 0.65),
                 # 180° rotation about Z (w, x, y, z)
                 rot=(0,0, 0.0, 1.0),
                 joint_pos={},  
@@ -73,7 +78,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
                 rigid_props=RigidBodyPropertiesCfg(disable_gravity=True),
                 mass_props=MassPropertiesCfg(mass=0.0),
             ),
-             init_state=RigidObjectCfg.InitialStateCfg(pos=[0, 0, 0]),
+             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.1, -0.2, 0]),
         )
 
         # ── actions ───────────────────────────────────────────────────
@@ -86,7 +91,19 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         self.actions.gripper_action = mdp.SurfaceGripperActionCfg(
             asset_name="robot",
             gripper_prim_path="{ENV_REGEX_NS}/Robot/xarm7/link_eef",
+            offset=[0,0,0.1],
+            rot_offset = [0, -0.707,0 ,0.707],
+            grip_threshold= 0.1
         )
+
+        self.actions.gripper_action2 = mdp.SurfaceGripperActionCfg(
+            asset_name="robot",
+            gripper_prim_path="{ENV_REGEX_NS}/Robot/xarm7/cylinder/Cylinder",
+            offset=[0,0.5,-0.15],
+            rot_offset = [0, 0.707,0 ,0.707],
+            grip_threshold=  0.1
+            
+        )        
 
         # ── frame transformer ────────────────────────────────────────
         self.scene.ee_frame = FrameTransformerCfg(
@@ -97,6 +114,18 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
                 FrameTransformerCfg.FrameCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/xarm7/link_eef",
                     offset=OffsetCfg(pos=[0.0, 0.0, 0.06], rot=[0, 0, 0, 1]),
+                ),
+            ],
+        )
+
+        self.scene.cylinder_frame = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/xarm7/link1",
+            debug_vis=True,
+            visualizer_cfg=marker_cfg,
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Robot/xarm7/cylinder/Cylinder",
+                    offset=OffsetCfg(pos=[0.0, 0.5, -0.15], rot=[0, 0.707,0 ,0.707]),  # ✅ Set offset here
                 ),
             ],
         )

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-
 def quat_to_rot_matrix(q: torch.Tensor) -> torch.Tensor:
     """Convert quaternion (..., 4) to rotation matrix (..., 3, 3)"""
     # Normalize quaternion just in case
@@ -87,6 +86,7 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import subtract_frame_transforms
+
 
 
 def object_ee_distance(
@@ -302,3 +302,90 @@ def is_grasping_fixed_object(
 
     return is_closed * is_near  # Only reward if closed near the cube
 
+def simultaneous_gripper_penalty(
+    env: ManagerBasedRLEnv,
+    grip_term_1: str = "gripper_action",
+    grip_term_2: str = "gripper_action2",
+    grace_steps: int = 30,    # ~2 seconds
+    penalty: float = -1.0,
+) -> torch.Tensor:
+    try:
+        term1 = env.action_manager.get_term(grip_term_1)
+        term2 = env.action_manager.get_term(grip_term_2)
+    except KeyError:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    g1 = term1.is_closed().float()
+    g2 = term2.is_closed().float()
+
+    # Access the shared timer from either term (they should be the same size)
+    timers = term1._shared_gripper_state_timer
+
+    grace_mask = (timers >= grace_steps).float()
+    same_state = (g1 == g2).float()
+
+    penalty_applied = penalty * same_state * grace_mask
+
+    # Optional debug
+    print(f"[DEBUG] g1: {g1[0].item()}, g2: {g2[0].item()}, grace: {grace_mask[0].item()}, penalty: {penalty_applied[0].item()}")
+
+    return penalty_applied
+
+
+
+def is_gripper2_closed_around_goal(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+    grip_term: str = "gripper_action2",
+    tol: float = 0.3,
+) -> torch.Tensor:
+    """
+    Reward if gripper2 is closed and robot base is near the goal_marker.
+    """
+    try:
+        gripper = env.action_manager.get_term(grip_term)
+        is_closed = gripper.is_closed().float()
+    except KeyError:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    robot = env.scene[robot_cfg.name]
+    goal = env.scene[goal_cfg.name]
+
+    robot_pos = robot.data.root_pos_w[:, :2]  # (N, 2)
+    goal_pos = goal.data.root_pos_w[:, :2]    # (N, 2)
+
+    dist = torch.norm(robot_pos - goal_pos, dim=1)  # (N,)
+    is_near = (dist < tol).float()
+
+    reward = is_closed * is_near
+
+    print(f"[DEBUG] gripper2 is_closed: {is_closed[0].item()}, robot near goal: {is_near[0].item()}, reward: {reward[0].item()}")
+
+    return reward
+
+
+
+
+
+
+
+
+# def is_gripper2_closed_reward(
+#     env: ManagerBasedRLEnv,
+#     ee_cfg: SceneEntityCfg = SceneEntityCfg("cylinder_frame"),
+#     grip_term: str = "gripper_action2",
+# ) -> torch.Tensor:
+#     """
+#     Reward if gripper2 is closed (regardless of proximity). Meant to test grasping behavior.
+#     """
+#     try:
+#         gripper = env.action_manager.get_term(grip_term)
+#         is_closed = gripper.is_closed().float()
+#     except KeyError:
+#         return torch.zeros(env.num_envs, device=env.device)
+
+#     # Optional: print debug info
+#     print(f"[DEBUG] gripper2 is_closed (env 0): {is_closed[0].item()}")
+
+#     return is_closed
