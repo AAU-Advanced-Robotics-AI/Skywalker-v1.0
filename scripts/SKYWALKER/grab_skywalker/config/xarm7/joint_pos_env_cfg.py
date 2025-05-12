@@ -30,7 +30,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         self.scene.robot = XARM7_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
             init_state=ArticulationCfg.InitialStateCfg(
-                pos=(0, 0, 0.5),
+                pos=(0, 0, 0.42),
                 #rot=(0.0, 0.0, 0.0, 1.0),
                 joint_pos={},        # ← inside InitialStateCfg
                 joint_vel={},        # ← inside InitialStateCfg

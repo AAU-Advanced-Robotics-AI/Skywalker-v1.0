@@ -107,6 +107,7 @@ class SurfaceGripperActionTerm(ActionTerm):
         self._rot_offset = []
         self._grip_threshold = []
         self._shared_gripper_state_timer = torch.zeros(self._num_envs, dtype=torch.long, device=self.device)
+        
 
         for env_id in range(self._num_envs):
             prim_path = cfg.gripper_prim_path.format(ENV_REGEX_NS=f"/World/envs/env_{env_id}")

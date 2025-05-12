@@ -21,7 +21,7 @@ def reset_goal_within_reach(
     HW: float,
     HR: float,
     RR: float,
-    z: float = 0.47,
+    z: float = 0.337,
     min_radius: float = 0.25,  # avoid spawning at base
 ):
     """

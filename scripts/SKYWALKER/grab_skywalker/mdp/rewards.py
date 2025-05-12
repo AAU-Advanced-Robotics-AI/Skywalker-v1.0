@@ -8,7 +8,7 @@ from __future__ import annotations
 from isaaclab.assets.asset_base import AssetBase
 import torch
 from typing import TYPE_CHECKING
-
+import grab_skywalker.mdp as mdp
 from isaaclab.assets import Articulation
 from isaaclab.utils.math import wrap_to_pi
 from isaaclab.assets import RigidObject
@@ -158,8 +158,6 @@ def ee_approach_alignment_in_base(
     return (alignment + 1.0) / 2.0
 
 
-
-
 def robot_base_to_goal_distance(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -172,9 +170,26 @@ def robot_base_to_goal_distance(
     distance = torch.norm(root_pos - goal_pos, dim=1)
 
     # Optional: print first 30 distances
-    print("Distances (first 30 envs):", distance[:30].cpu().numpy())
+    #print("Distances (first 30 envs):", distance[:30].cpu().numpy())
 
-    return 1 - torch.tanh(distance / 0.3)
+    return 1 - torch.tanh(distance)
+
+
+def robot_base_to_goal_distance_fine(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+) -> torch.Tensor:
+    """Compute reward based on distance from robot base to per-env goal marker."""
+    root_pos = env.scene[robot_cfg.name].data.root_pos_w[:, :2]  # shape (num_envs, 2)
+    goal_pos = env.scene[goal_cfg.name].data.root_pos_w[:, :2]   # shape (num_envs, 2)
+
+    distance = torch.norm(root_pos - goal_pos, dim=1)
+
+    # Optional: print first 30 distances
+    #print("Distances (first 30 envs):", distance[:30].cpu().numpy())
+
+    return 1 - torch.tanh(distance / 0.1)
 
 
 def object_ee_orientation_alignment(
@@ -297,7 +312,7 @@ def is_grasping_fixed_object(
     is_near = (dist < tol).float()
 
     reward = is_closed * is_near
-    print(f"[DEBUG] is_closed: {is_closed[0].item()}, is_near: {is_near[0].item()}, reward: {reward[0].item()}")
+    #print(f"[DEBUG] is_closed: {is_closed[0].item()}, is_near: {is_near[0].item()}, reward: {reward[0].item()}")
 
 
     return is_closed * is_near  # Only reward if closed near the cube
@@ -331,38 +346,71 @@ def simultaneous_gripper_penalty(
 
     return penalty_applied
 
-
-
-def is_gripper2_closed_around_goal(
+def cylinder_goal_distance(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+    goal_cfg:  SceneEntityCfg = SceneEntityCfg("goal_marker"),
     grip_term: str = "gripper_action2",
-    tol: float = 0.3,
+    std: float = 0.25,           # distance at which reward ≈ e-1 ≈ 0.37
+    tol: float = 0.12,           # “close-enough” zone (same units as distance)
+    close_bonus: float = 1.0,    # extra bump for closing inside tol
+    far_penalty: float = -0.3,   # small negative for closing too early
 ) -> torch.Tensor:
     """
-    Reward if gripper2 is closed and robot base is near the goal_marker.
+    Dense docking reward in robot-base frame.
+
+    • Always gives exp(-d / std) so the critic sees a gradient.
+    • Adds +close_bonus when gripper2 *closes* within tol of the goal.
+    • Adds –far_penalty when gripper2 closes farther than tol.
     """
-    try:
-        gripper = env.action_manager.get_term(grip_term)
-        is_closed = gripper.is_closed().float()
-    except KeyError:
-        return torch.zeros(env.num_envs, device=env.device)
-
     robot = env.scene[robot_cfg.name]
-    goal = env.scene[goal_cfg.name]
+    goal  = env.scene[goal_cfg.name]
+    gripper = env.action_manager.get_term(grip_term)
 
-    robot_pos = robot.data.root_pos_w[:, :2]  # (N, 2)
-    goal_pos = goal.data.root_pos_w[:, :2]    # (N, 2)
+    # distance in XY plane (robot frame == cylinder frame)
+    root_pos = robot.data.root_pos_w[:, :2]
+    goal_pos = goal.data.root_pos_w[:, :2]
+    dist = torch.norm(root_pos - goal_pos, dim=1)        # (N,)
 
-    dist = torch.norm(robot_pos - goal_pos, dim=1)  # (N,)
-    is_near = (dist < tol).float()
+    base_reward = torch.exp(-dist / std)                 # (0, 1]
 
-    reward = is_closed * is_near
+    closed = gripper.is_closed().float()                 # (N,)
+    near   = (dist < tol).float()
 
-    print(f"[DEBUG] gripper2 is_closed: {is_closed[0].item()}, robot near goal: {is_near[0].item()}, reward: {reward[0].item()}")
+    # combine signals
+    shaped = base_reward + close_bonus * closed * near + far_penalty * closed * (1 - near)
+    return shaped
 
-    return reward
+# def is_gripper2_closed_around_goal(
+#     env: ManagerBasedRLEnv,
+#     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+#     goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+#     grip_term: str = "gripper_action2",
+#     tol: float = 0.05,
+# ) -> torch.Tensor:
+#     """
+#     Reward if gripper2 is closed and robot base is near the goal_marker.
+#     """
+#     try:
+#         gripper = env.action_manager.get_term(grip_term)
+#         is_closed = gripper.is_closed().float()
+#     except KeyError:
+#         return torch.zeros(env.num_envs, device=env.device)
+
+#     robot = env.scene[robot_cfg.name]
+#     goal = env.scene[goal_cfg.name]
+
+#     robot_pos = robot.data.root_pos_w[:, :2]  # (N, 2)
+#     goal_pos = goal.data.root_pos_w[:, :2]    # (N, 2)
+
+#     dist = torch.norm(robot_pos - goal_pos, dim=1)  # (N,)
+#     is_near = (dist < tol).float()
+
+#     reward = is_closed * is_near
+
+#     print(f"[DEBUG] gripper2 is_closed: {is_closed[0].item()}, robot near goal: {is_near[0].item()}, reward: {reward[0].item()}")
+
+#     return reward
 
 
 

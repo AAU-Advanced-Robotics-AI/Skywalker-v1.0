@@ -30,9 +30,10 @@ def ee_position_in_robot_root_frame(
     )
 
     # ⬇️ Print EE position for the first env
-    print(f"[Debug] EE pos (env 0): {ee_pos_b[0].cpu().numpy()}")
+    #print(f"[Debug] EE pos (env 0): {ee_pos_b[0].cpu().numpy()}")
 
     return ee_pos_b
+
 
 
 def object_position_in_robot_root_frame(
@@ -54,7 +55,7 @@ def object_position_in_robot_root_frame(
     )
 
     # Optional debug
-    print(f"[Debug] Object pos in base (env 0): {obj_pos_b[0].cpu().numpy()}")
+    #print(f"[Debug] Object pos in base (env 0): {obj_pos_b[0].cpu().numpy()}")
 
     return obj_pos_b
 
@@ -66,11 +67,60 @@ def gripper_contact_state(env: ManagerBasedRLEnv) -> torch.Tensor:
     state1 = term1.get_grasping_mask()
     state2 = term2.get_grasping_mask()
 
-    print(f"[Debug] Gripper states (env 0): {state1[0].item()}, {state2[0].item()}")
+    #print(f"[Debug] Gripper states (env 0): {state1[0].item()}, {state2[0].item()}")
 
     return torch.stack([state1, state2], dim=1)
 
+def cylinder_closed(env, grip_term="gripper_action2"):
+    g = env.action_manager.get_term(grip_term)   # this is your base gripper
+    return g.is_closed().float().unsqueeze(1)
 
+def goal_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+    radius: float = 0.7,
+) -> torch.Tensor:
+    """Return the goal marker’s position in the robot’s root frame and
+    debug-print it for the first 30 vectorised environments."""
+    robot: RigidObject = env.scene[robot_cfg.name]
+    goal = env.scene[goal_cfg.name]
+
+    # World-frame position of the goal marker
+    if hasattr(goal.data, "root_pos_w"):
+        goal_pos_w = goal.data.root_pos_w          # RigidObject
+    else:
+        goal_pos_w, _ = goal.get_world_poses()     # XFormPrim or similar
+
+    goal_pos_b, _ = subtract_frame_transforms(
+        robot.data.root_state_w[:, :3],            # robot base position
+        robot.data.root_state_w[:, 3:7],           # robot base orientation (quat)
+        goal_pos_w,
+    )
+
+    # Print positions for envs 0-29 (or fewer if batch smaller)
+    #slice_end = min(30, goal_pos_b.shape[0])
+    #print(f"[Debug] Goal pos in base (env 0-{slice_end-1}): {goal_pos_b[:slice_end].cpu().numpy()}")
+
+    return goal_pos_b/radius
+
+
+def root_lin_vel_xy(env, robot_cfg=SceneEntityCfg("robot")):
+    robot = env.scene[robot_cfg.name]
+    return robot.data.root_lin_vel_w[:, :2]                 # (N,2)
+
+def is_cube_grasped(env,
+                    cube_cfg=SceneEntityCfg("cube"),
+                    ee_cfg=SceneEntityCfg("ee_frame"),
+                    grip_term="gripper_action") -> torch.Tensor:
+    gripper = env.action_manager.get_term(grip_term)
+    closed  = gripper.is_closed().float()                   # (N,)
+    ee      = env.scene[ee_cfg.name]
+    cube    = env.scene[cube_cfg.name]
+    dist    = torch.norm(ee.data.target_pos_w[...,0,:] -
+                         cube.data.target_pos_w[...,0,:], dim=1)
+    near    = (dist < 0.15).float()
+    return (closed * near).unsqueeze(1)                     # (N,1)
 
 
 

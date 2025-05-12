@@ -63,3 +63,34 @@ def robot_reached_goal(
     goal_pos = env.scene[goal_cfg.name].data.root_pos_w[:, :2]
     return torch.norm(root_pos - goal_pos, dim=1) < threshold
 
+def is_gripper2_closed_around_goal(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+    grip_term: str = "gripper_action2",
+    tol: float = 0.3,
+) -> torch.Tensor:
+    """
+    Reward if gripper2 is closed and robot base is near the goal_marker.
+    """
+    try:
+        gripper = env.action_manager.get_term(grip_term)
+        is_closed = gripper.is_closed()
+    except KeyError:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    robot = env.scene[robot_cfg.name]
+    goal = env.scene[goal_cfg.name]
+
+    robot_pos = robot.data.root_pos_w[:, :2]  # (N, 2)
+    goal_pos = goal.data.root_pos_w[:, :2]    # (N, 2)
+
+    dist = torch.norm(robot_pos - goal_pos, dim=1)  # (N,)
+    is_near = (dist < tol)
+
+    reward = is_closed * is_near
+
+    print(f"[DEBUG] gripper2 is_closed: {is_closed[0].item()}, robot near goal: {is_near[0].item()}, reward: {reward[0].item()}")
+
+    return reward
+
