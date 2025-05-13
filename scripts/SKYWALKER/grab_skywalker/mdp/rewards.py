@@ -92,7 +92,7 @@ from isaaclab.utils.math import subtract_frame_transforms
 def object_ee_distance(
     env: ManagerBasedRLEnv,
     std: float = 0.5,
-    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube1"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
@@ -125,7 +125,7 @@ def object_ee_distance(
 
 def ee_approach_alignment_in_base(
     env: ManagerBasedRLEnv,
-    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube1"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
@@ -194,7 +194,7 @@ def robot_base_to_goal_distance_fine(
 
 def object_ee_orientation_alignment(
     env: ManagerBasedRLEnv,
-    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube1"),
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """Reward the agent for aligning EE Z-axis opposite to cube's Z-axis using cosine similarity."""
@@ -291,7 +291,7 @@ def self_collision_penalty(
 def is_grasping_fixed_object(
     env: ManagerBasedRLEnv,
     ee_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
-    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube"),
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube1"),
     tol: float = 0.2,
     grip_term: str = "gripper_action",
 ) -> torch.Tensor:
@@ -346,7 +346,10 @@ def simultaneous_gripper_penalty(
 
     return penalty_applied
 
-def cylinder_goal_distance(
+
+
+
+def robot_goal_docking_reward(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     goal_cfg:  SceneEntityCfg = SceneEntityCfg("goal_marker"),
@@ -380,6 +383,8 @@ def cylinder_goal_distance(
     # combine signals
     shaped = base_reward + close_bonus * closed * near + far_penalty * closed * (1 - near)
     return shaped
+
+
 
 # def is_gripper2_closed_around_goal(
 #     env: ManagerBasedRLEnv,

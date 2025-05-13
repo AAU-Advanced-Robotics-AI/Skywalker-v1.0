@@ -30,7 +30,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         self.scene.robot = XARM7_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
             init_state=ArticulationCfg.InitialStateCfg(
-                pos=(0, 0, 0.42),
+                pos=(0, 0.65, 0.42),
                 #rot=(0.0, 0.0, 0.0, 1.0),
                 joint_pos={},        # ← inside InitialStateCfg
                 joint_vel={},        # ← inside InitialStateCfg
@@ -130,13 +130,35 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
             ],
         )
 
-        self.scene.cube = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube_xform/Cube",
+        self.scene.cube1 = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1",
             debug_vis=True,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube_xform/Cube"
+                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1"
+                ),
+            ],
+        )
+
+        self.scene.cube2 = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1",
+            debug_vis=True,
+            visualizer_cfg=marker_cfg,
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1"
+                ),
+            ],
+        )
+
+        self.scene.cube3 = FrameTransformerCfg(
+            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube3_xform/Cube3",
+            debug_vis=True,
+            visualizer_cfg=marker_cfg,
+            target_frames=[
+                FrameTransformerCfg.FrameCfg(
+                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube3_xform/Cube3"
                 ),
             ],
         )

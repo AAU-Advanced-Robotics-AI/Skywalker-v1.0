@@ -29,7 +29,7 @@ def reset_goal_within_reach(
     while also avoiding a radius around the robot base.
     """
     asset = env.scene[asset_cfg.name]
-    cube = env.scene["cube"]
+    cube = env.scene["cube1"]
     cube_pos = cube.data.target_pos_w[env_ids, 0, :]  # shape [len(env_ids), 3]
     base_pos = env.scene["robot"].data.root_pos_w[env_ids, :3]  # shape [len(env_ids), 3]
 

@@ -110,7 +110,7 @@ def root_lin_vel_xy(env, robot_cfg=SceneEntityCfg("robot")):
     return robot.data.root_lin_vel_w[:, :2]                 # (N,2)
 
 def is_cube_grasped(env,
-                    cube_cfg=SceneEntityCfg("cube"),
+                    cube_cfg=SceneEntityCfg("cube1"),
                     ee_cfg=SceneEntityCfg("ee_frame"),
                     grip_term="gripper_action") -> torch.Tensor:
     gripper = env.action_manager.get_term(grip_term)

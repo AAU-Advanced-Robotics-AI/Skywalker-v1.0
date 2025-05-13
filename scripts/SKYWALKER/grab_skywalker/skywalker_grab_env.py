@@ -2,6 +2,7 @@
 from dataclasses import MISSING
 
 import math
+
 #from scripts.SKYWALKER.skywalker2.mdp.terminations import robot_reached_goal
 from sympy import Q
 import torch
@@ -83,7 +84,11 @@ class SkywalkerGrabSceneCfg(InteractiveSceneCfg):
     
     goal_marker: AssetBaseCfg | RigidObjectCfg | DeformableObjectCfg = MISSING
 
-    cube: FrameTransformerCfg = MISSING
+    cube1: FrameTransformerCfg = MISSING
+
+    cube2: FrameTransformerCfg = MISSING
+
+    cube3: FrameTransformerCfg = MISSING
 
     cylinder_frame: FrameTransformerCfg = MISSING
     
@@ -130,8 +135,8 @@ class ObservationsCfg:
         goal_delta = ObsTerm(func=mdp.goal_position_in_robot_root_frame)
         root_vel_xy   = ObsTerm(func=mdp.root_lin_vel_xy)
         grasp_flag    = ObsTerm(func=mdp.is_cube_grasped)
-       
         cylinder_closed     = ObsTerm(func=mdp.cylinder_closed)
+
 
 
 
@@ -175,43 +180,6 @@ class EventCfg:
             "z": 0.40,
         },
     )
-
-    # reset_goal = EventTerm(
-    #     func=reset_goal_away_from_origin,
-    #     mode="reset",
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("goal_marker"),
-    #         "pose_range": {
-    #             "x": (-0.3, 0.3),
-    #             "y": (-0.45, 0.45),
-    #             "z": (0.47, 0.47),
-    #         },
-    #         "velocity_range": {},  # still required, even if unused here
-    #         "min_radius": 0.3,
-    #     },
-    # )
-
-
-    # reset_goal = EventTerm(
-    #     func=mdp.reset_root_state_uniform,
-    #     mode="reset",
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("goal_marker"),
-    #         "pose_range": {
-    #             "x": (0.0, 0.0),
-    #             "y": (0.5, 0.5),
-    #             "z": (0.47, 0.47),
-    #         },
-    #         "velocity_range": {
-    #             "x": (0.0, 0.0),
-    #             "y": (0.0, 0.0),
-    #             "z": (0.0, 0.0),
-    #             "roll": (0.0, 0.0),
-    #             "pitch": (0.0, 0.0),
-    #             "yaw": (0.0, 0.0),
-    #         },
-    #     },
-    # )
 
 
 @configclass
@@ -266,6 +234,13 @@ class RewardsCfg:
         params={}
     )
 
+    cylinder_to_goal = RewTerm(
+    func   = mdp.robot_goal_docking_reward,
+    weight = 5.0,
+    params = {}          # use defaults above; tune later if needed
+    )
+
+
     # grab_floor = RewTerm(
     #     func=mdp.is_gripper2_closed_around_goal,
     #     weight=0.0,
@@ -289,9 +264,6 @@ class RewardsCfg:
         weight=1.0,
         params={"asset_cfg": SceneEntityCfg("robot")}
     )
-
-    cylinder_to_goal = RewTerm(func=mdp.cylinder_goal_distance,
-                           weight=5.0, params={})
 
     robot_fixed_in_goal = RewTerm(func=mdp.is_gripper2_closed_around_goal, weight=20.0, params={"tol": 0.1})
 
