@@ -16,6 +16,14 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils.math import combine_frame_transforms, quat_error_magnitude, quat_mul
 from isaaclab.sensors import FrameTransformer
 from isaaclab.utils.math import subtract_frame_transforms
+from isaacsim.core.utils.prims import get_prim_at_path
+import isaacsim.core.utils.prims as prim_utils
+import omni.usd
+import omni.physx as physx
+from isaacsim.core.utils.prims import get_prim_at_path
+import isaacsim.core.utils.prims as prim_utils
+from pxr import UsdGeom, Sdf, Usd
+
 
 
 if TYPE_CHECKING:
@@ -244,12 +252,11 @@ def hold_far_cube_penalty(
 
 
 
-
 def is_grasping_fixed_object(
     env: ManagerBasedRLEnv,
     ee_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
     cube_cfg: SceneEntityCfg = SceneEntityCfg("cube1"),
-    tol: float = 0.2,
+    tol: float = 0.15,
     grip_term: str = "gripper_action",
 ) -> torch.Tensor:
     """Reward if the gripper is closed and EE is near the cube (likely grasp)."""
@@ -264,11 +271,16 @@ def is_grasping_fixed_object(
 
     ee_pos = ee.data.target_pos_w[..., 0, :]
     cube_pos = cube.data.target_pos_w[..., 0, :]
+    cube_ent = env.scene[cube_cfg.name]
+    # print(f"[DEBUG] cube '{cube_cfg.name}' → transformer prim = {cube_ent.cfg.prim_path}")
+    # print(f"[DEBUG] cube '{cube_cfg.name}' world_pos = {cube_ent.data.target_pos_w[0,0].tolist()}")
+    # d0 = torch.norm(ee_pos[0] - cube_pos[0]).item()
+    # print(f"[DEBUG] grasp_dist={d0:.3f}  thresh={tol}")
 
     dist = torch.norm(ee_pos - cube_pos, dim=1)
     is_near = (dist < tol).float()
 
-    reward = is_closed * is_near
+    
     #print(f"[DEBUG] is_closed: {is_closed[0].item()}, is_near: {is_near[0].item()}, reward: {reward[0].item()}")
 
 
@@ -304,12 +316,12 @@ def simultaneous_gripper_penalty(
     # Debug print (first env only)
     # ------------------------------------------------------------------
    
-    print(
-        f"[DBG] g1_closed={g1_closed[0].item():.0f}  "
-        f"g2_closed={g2_closed[0].item():.0f}  "
-        f"timer={timers[0]:3d}  "
-        f"penalty={penalty_applied[0].item():+.1f}"
-    )
+    # print(
+    #     f"[DBG] g1_closed={g1_closed[0].item():.0f}  "
+    #     f"g2_closed={g2_closed[0].item():.0f}  "
+    #     f"timer={timers[0]:3d}  "
+    #     f"penalty={penalty_applied[0].item():+.1f}"
+    # )
 
     return penalty_applied
 
@@ -446,115 +458,276 @@ def reset_action_rate_cache():
     _prev = None
 
 
-
 def self_collision_penalty(
     env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+    asset_cfg: SceneEntityCfg           = SceneEntityCfg("robot"),
+    min_collisions: int                 = 2,      # ignore 0–1 minor grazes
+    penalty_per_collision: float        = -1.0,
 ) -> torch.Tensor:
+    # grab the robot articulation
     robot: Articulation = env.scene[asset_cfg.name]
-    if hasattr(robot, "get_self_collisions"):
-        return (robot.get_self_collisions() > 0).float() * -1.0
-    else:
+
+    # if self‐collision wasn’t enabled, just return zeros
+    if not hasattr(robot, "get_self_collisions"):
         return torch.zeros(env.num_envs, device=env.device)
-    
-def wall_proximity_penalty(
+
+    # that call now returns an (N,) int tensor
+    coll_counts: torch.Tensor = robot.get_self_collisions()
+
+    # only penalize when there are >= min_collisions simultaneous contacts
+    mask = (coll_counts >= min_collisions).float()
+
+    return penalty_per_collision * mask
+
+
+
+def time_step_penalty(
     env,
-    ee_cfg: SceneEntityCfg   = SceneEntityCfg("ee_frame"),
-    wall_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-    grip_term: str           = "gripper_action",
-    reach_tol: float         = 0.05,     # e.g. 5 cm
-    penalty: float           = -1.0,
-):
-    # 1) (Optional) only penalize when gripper is closed:
-    term   = env.action_manager.get_term(grip_term)
-    closed = term.is_closed().float()        # (N,)
+    # no extra params needed
+) -> torch.Tensor:
+    # returns +1 for each env; the negative weight in RewardsCfg makes it a penalty
+    return torch.ones(env.num_envs, device=env.device)
 
-    # 2) EE position in world:
-    ee_frame = env.scene[ee_cfg.name]
-    ee_pos   = ee_frame.data.target_pos_w[..., 0, :]  # (N, 3)
 
-    # 3) Wall’s center in world:
-    wall_prim = env.scene[wall_cfg.name]
-    try:
-        center = wall_prim.data.root_pos_w           # (N, 3)
-    except AttributeError:
-        center, _ = wall_prim.get_world_poses()      # (N, 3)
-
-    # 4) Half-extents of your cube (in meters).
-    #    You can either hard-code these if your wall is, say, 1×1×2 m:
-    #half_extents = torch.tensor([0.5, 0.5, 1.0], device=ee_pos.device)
-    #
-    #    Or, if you want to pull them at runtime from USD:
-    extents = wall_prim.prim.GetAttribute("extent").Get()  # [minX, minY, minZ, maxX, maxY, maxZ]
-    mins, maxs = torch.tensor(extents[:3], device=ee_pos.device), torch.tensor(extents[3:], device=ee_pos.device)
-    half_extents = (maxs - mins) / 2
-
-    # 5) Compute “outside‐the‐box” distances per axis:
-    delta = torch.abs(ee_pos - center) - half_extents    # (N,3)
-    delta_clamped = torch.clamp(delta, min=0.0)          # zero any negative (inside)
-    dist_to_surface = torch.norm(delta_clamped, dim=1)  # (N,)
-
-    # 6) Mask of “too close”
-    too_close = (dist_to_surface < reach_tol).float()    # (N,)
-
-    # 7) Combine masks (only penalize when closed *and* too close):
-    bad = closed * too_close
-
-    return penalty * bad
 
 def cylinder_self_grasp_penalty(
     env,
     ee_cfg: SceneEntityCfg       = SceneEntityCfg("ee_frame"),
-    cyl_cfg: SceneEntityCfg      = SceneEntityCfg("cylinder"),
-    grip_term: str               = "gripper_action",
-    reach_tol: float             = 0.02,        # meters
-    # cyl_radius: float            = 0.15,        # meters: set to your base’s radius
-    # cyl_half_height: float       = 0.10,        # meters: half of your base’s height
+    cyl_cfg: SceneEntityCfg      = SceneEntityCfg("cylinder_frame"),
+    grip_term: str               = "gripper_action2",
+    reach_tol: float             = 0.02,    # meters
     penalty: float               = -1.0,
 ):
-    # 1) Only penalize when the gripper is closed
-    term   = env.action_manager.get_term(grip_term)
-    closed = term.is_closed().float()               # (N,)
+    # ----------------------------------------------------------------------------
+    # 1) Gripper closed mask and fetch EE & cylinder center (all shape (N,3)/(N,))
+    # ----------------------------------------------------------------------------
+    closed = env.action_manager.get_term(grip_term).is_closed().float()      # (N,)
+    ee_pos = env.scene[ee_cfg.name].data.target_pos_w[..., 0, :]            # (N,3)
 
-    # 2) End-effector position in world coords
-    ee_frame = env.scene[ee_cfg.name]
-    ee_pos   = ee_frame.data.target_pos_w[..., 0, :]  # (N,3)
+    cyl_tf = env.scene[cyl_cfg.name]
+    center = cyl_tf.data.target_pos_w[..., 0, :]                            # (N,3)
 
-    # 3) Cylinder (robot base) center in world coords
-    cyl_prim = env.scene[cyl_cfg.name]
-    try:
-        cyl_center = cyl_prim.data.root_pos_w         # (N,3)
-    except AttributeError:
-        cyl_center, _ = cyl_prim.get_world_poses()
+    # ---- DEBUG: print every env's EE pos & cylinder center ----
+    # for i, (ee_i, cen_i, cl) in enumerate(zip(ee_pos.tolist(),
+    #                                           center.tolist(),
+    #                                           closed.tolist())):
+        # print(f"[DEBUG] Cylinder Penalty – Env {i}: EE pos={ee_i}, "
+        #       f"Center={cen_i}, Closed={bool(cl)}")
+    # ----------------------------------------------------------------------------
+    # 2) Static cylinder half-extents via USD template
+    # ----------------------------------------------------------------------------
+    stage     = omni.usd.get_context().get_stage()
+    bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(),
+                                   includedPurposes={"default","render","proxy"},
+                                   useExtentsHint=True)
+    cyl_prim = None
+    for prim in stage.Traverse():
+        if prim.GetName() == "Cylinder" and str(prim.GetPath()).startswith("/World/envs/"):
+            cyl_prim = prim
+            break
+    if cyl_prim is None or not cyl_prim.IsValid():
+        raise RuntimeError("Couldn’t find any Cylinder prim under /World/envs/…")
 
-      # … up through getting cyl_prim …
-    cyl_prim = env.scene[cyl_cfg.name]
+    local_bound = bbox_cache.ComputeLocalBound(cyl_prim)
+    rng         = local_bound.GetRange()
+    min_pt, max_pt = rng.GetMin(), rng.GetMax()
+    spans        = [max_pt[i] - min_pt[i] for i in range(3)]
+    half_extents = torch.tensor([s * 0.5 for s in spans],
+                                device=ee_pos.device)                         # (3,)
+    cyl_radius      = torch.max(half_extents[0], half_extents[1])             # scalar
+    cyl_half_height = half_extents[2]                                         # scalar
 
-    # Pull cylinder parameters from USD at runtime:
-    # (radius and height are single floats; turn them into tensors on the right device)
-    radius = cyl_prim.prim.GetAttribute("radius").Get()      # python float
-    height = cyl_prim.prim.GetAttribute("height").Get()      # python float
+    # ----------------------------------------------------------------------------
+    # 3) Distance‐to‐cylinder surface (vectorized)
+    # ----------------------------------------------------------------------------
+    delta       = ee_pos - center                                             # (N,3)
+    dz          = torch.clamp(torch.abs(delta[..., 2]) - cyl_half_height, min=0.0)
+    radial_dist = torch.sqrt(delta[..., 0]**2 + delta[..., 1]**2)
+    dr          = torch.clamp(radial_dist - cyl_radius, min=0.0)
+    dist_to_surf= torch.sqrt(dz**2 + dr**2)                                    # (N,)
 
-    cyl_radius      = torch.tensor(radius, device=ee_pos.device)         # (scalar tensor)
-    cyl_half_height = torch.tensor(height * 0.5, device=ee_pos.device)   # (scalar tensor)
-      
-
-    # 4) Vector from cylinder center to EE
-    delta = ee_pos - cyl_center                     # (N,3)
-
-    # 5) Vertical “outside” distance: how far above/below the capped ends?
-    dz = torch.clamp(torch.abs(delta[..., 2]) - cyl_half_height, min=0.0)  # (N,)
-
-    # 6) Radial “outside” distance: how far outside the circular cross-section?
-    radial_dist = torch.sqrt(delta[..., 0]**2 + delta[..., 1]**2)         # (N,)
-    dr = torch.clamp(radial_dist - cyl_radius, min=0.0)                  # (N,)
-
-    # 7) Euclidean distance to the *surface* of the cylinder
-    dist_to_cyl = torch.sqrt(dz**2 + dr**2)                              # (N,)
-
-    # 8) Too-close mask and combine with “closed” mask
-    too_close = (dist_to_cyl < reach_tol).float()   # (N,)
-    bad       = closed * too_close                  # (N,)
-
-    # 9) Return the penalty
+    # ----------------------------------------------------------------------------
+    # 4) Mask & penalty
+    # ----------------------------------------------------------------------------
+    too_close = (dist_to_surf < reach_tol).float()     # (N,)
+    bad       = closed * too_close                     # (N,)
     return penalty * bad
+
+import torch
+import omni.usd
+from pxr import Sdf
+from grab_skywalker.mdp import SceneEntityCfg
+
+import torch
+import omni.usd
+from pxr import UsdGeom, Sdf
+from grab_skywalker.mdp import SceneEntityCfg
+
+
+def wall_proximity_penalty(
+    env,
+    ee_cfg:   SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    obj_cfg:  SceneEntityCfg = SceneEntityCfg("object"),
+    grip_term:str            = "gripper_action",
+    cube_cfgs:list           = [
+        SceneEntityCfg("cube1"),
+        SceneEntityCfg("cube2"),
+        SceneEntityCfg("cube3"),
+    ],
+    reach_tol:float          = 0.25,
+    penalty:  float          = -1.0,
+):
+    # 1) Closed‐gripper mask & EE Y pos
+    closed = env.action_manager.get_term(grip_term).is_closed().float()   # (N,)
+    ee_y   = env.scene[ee_cfg.name].data.target_pos_w[..., 0, 1]         # (N,)
+
+    # 2) World‐space center of your “object” (the wall assembly)
+    obj_ent = env.scene[obj_cfg.name]
+    if hasattr(obj_ent.data, "root_pos_w"):
+        center_y = obj_ent.data.root_pos_w[..., 1]                       # (N,)
+    else:
+        center_y = obj_ent.data.target_pos_w[..., 0, 1]                  # (N,)
+
+    # 3) Hard-coded half-thickness = 0.5 m / 2
+    half_y = 0.5  
+
+    # 4) Front face (–Y side) = center_y – half_y
+    front_y = center_y + half_y                                          # (N,)
+
+    # ── DEBUG ────────────────────────────────────────────────────────────
+   
+    print(f"[DEBUG][Env {0}] front_y={front_y[0].item():.3f}, "
+              f"ee_y={ee_y[0].item():.3f}, closed={closed[0].item()}")
+    # ─────────────────────────────────────────────────────────────────────
+
+    # 5) Penetration into wall slab
+    dy        = front_y - ee_y                                           # (N,)
+    too_close = (dy > 0.0) & (dy < reach_tol)                             # (N,)
+
+    # 6) Exempt any time you’re exactly over one of the mounting cubes
+    ee_pos   = env.scene[ee_cfg.name].data.target_pos_w[..., 0, :]        # (N,3)
+    near_any = torch.zeros_like(dy, dtype=torch.float32)                 # (N,)
+    for cfg in cube_cfgs:
+        ent = env.scene[cfg.name]
+        # always use data.*:
+        if hasattr(ent.data, "root_pos_w"):
+            cube_pos = ent.data.root_pos_w                               # (N,3)
+        else:
+            cube_pos = ent.data.target_pos_w[..., 0, :]                  # (N,3)
+        mask = (torch.abs(ee_pos[...,1] - cube_pos[...,1]) < reach_tol).float()
+        near_any = torch.maximum(near_any, mask)
+
+    # 7) Final mask: closed & too_close & not near_any
+    bad = closed * too_close.float() * (1.0 - near_any)                   # (N,)
+
+    return penalty * bad
+
+    # # 2) EE position in world:
+    # ee_frame = env.scene[ee_cfg.name]
+    # ee_pos   = ee_frame.data.target_pos_w[..., 0, :]  # (N, 3)
+
+    # # 3) Wall’s center in world:
+    # # wall_prim = env.scene[wall_cfg.name]
+    # # try:
+    # #     center = wall_prim.data.root_pos_w           # (N, 3)
+    # # except AttributeError:
+    # #     center, _ = wall_prim.get_world_poses()      # (N, 3)
+
+
+
+    # if hasattr(wall_cfg, "prim"):
+    #     usd_prim = wall_cfg.prim
+    # else:
+    #     # Articulations carry their path under `prim_path`
+    #     usd_prim = get_prim_at_path(wall_cfg.prim_path)
+
+    # # now you can read the extent attribute:
+    # extents = usd_prim.GetAttribute("extent").Get()   # [minX,minY,minZ, maxX,maxY,maxZ]
+    # mins, maxs = torch.tensor(extents[:3], device=ee_pos.device), \
+    #             torch.tensor(extents[3:], device=ee_pos.device)
+    # half_extents = (maxs - mins) / 2
+
+    # # 4) Half-extents of your cube (in meters).
+    # #    You can either hard-code these if your wall is, say, 1×1×2 m:
+    # #half_extents = torch.tensor([0.5, 0.5, 1.0], device=ee_pos.device)
+    # #
+    # #    Or, if you want to pull them at runtime from USD:
+    # extents = wall_prim.prim.GetAttribute("extent").Get()  # [minX, minY, minZ, maxX, maxY, maxZ]
+    # mins, maxs = torch.tensor(extents[:3], device=ee_pos.device), torch.tensor(extents[3:], device=ee_pos.device)
+    # half_extents = (maxs - mins) / 2
+
+    # # 5) Compute “outside‐the‐box” distances per axis:
+    # delta = torch.abs(ee_pos - center) - half_extents    # (N,3)
+    # delta_clamped = torch.clamp(delta, min=0.0)          # zero any negative (inside)
+    # dist_to_surface = torch.norm(delta_clamped, dim=1)  # (N,)
+
+    # # 6) Mask of “too close”
+    # too_close = (dist_to_surface < reach_tol).float()    # (N,)
+
+    # # 7) Combine masks (only penalize when closed *and* too close):
+    # bad = closed * too_close
+
+    # return penalty * bad
+
+
+# def cylinder_self_grasp_penalty(
+#     env,
+#     ee_cfg: SceneEntityCfg       = SceneEntityCfg("ee_frame"),
+#     cyl_cfg: SceneEntityCfg      = SceneEntityCfg("cylinder_frame"),
+#     grip_term: str               = "gripper_action2",
+#     reach_tol: float             = 0.02,    # meters
+#     penalty: float               = -1.0,
+# ):
+#     # ----------------------------------------------------------------------------
+#     # 1) Build masks and fetch EE & cylinder centers (all shape (N,3) or (N,))
+#     # ----------------------------------------------------------------------------
+#     term   = env.action_manager.get_term(grip_term)
+#     closed = term.is_closed().float()                       # (N,)
+#     ee_pos = env.scene[ee_cfg.name].data.target_pos_w[..., 0, :]  # (N,3)
+
+#     cyl_tf = env.scene[cyl_cfg.name]
+#     center = cyl_tf.data.target_pos_w[..., 0, :]           # (N,3)
+#     # ----------------------------------------------------------------------------
+#     # 2) On first call (or each call—cheap), scan USD for a Cylinder prim and get half-extents
+#     # ----------------------------------------------------------------------------
+#     stage     = omni.usd.get_context().get_stage()
+#     bbox_cache = UsdGeom.BBoxCache(
+#         Usd.TimeCode.Default(),
+#         includedPurposes={"default", "render", "proxy"},
+#         useExtentsHint=True
+#     )
+#     cyl_prim = None
+#     for prim in stage.Traverse():
+#         # find the first prim literally named "Cylinder" under any env
+#         if prim.GetName() == "Cylinder" and str(prim.GetPath()).startswith("/World/envs/"):
+#             cyl_prim = prim
+#             break
+#     if cyl_prim is None or not cyl_prim.IsValid():
+#         raise RuntimeError("Couldn’t find any Cylinder prim under /World/envs/…")
+
+#     # Compute its local (template) bounding-box
+#     local_bound = bbox_cache.ComputeLocalBound(cyl_prim)   # GfBBox3d
+#     rng         = local_bound.GetRange()                   # GfRange3d
+#     min_pt, max_pt = rng.GetMin(), rng.GetMax()            # GfVec3d
+
+#     # Turn into half-extents: X-span/2, Y-span/2, Z-span/2
+#     spans        = [max_pt[i] - min_pt[i] for i in range(3)]
+#     half_extents = torch.tensor([s * 0.5 for s in spans], device=ee_pos.device)  # (3,)
+#     cyl_radius      = torch.max(half_extents[0], half_extents[1])  # scalar
+#     cyl_half_height = half_extents[2]                             # scalar
+
+#     # ----------------------------------------------------------------------------
+#     # 3) Compute shortest distance from EE to *capped* cylinder surface (vectorized)
+#     # ----------------------------------------------------------------------------
+#     delta       = ee_pos - center                             # (N,3)
+#     dz          = torch.clamp(torch.abs(delta[..., 2]) - cyl_half_height, min=0.0)  # (N,)
+#     radial_dist = torch.sqrt(delta[..., 0]**2 + delta[..., 1]**2)                  # (N,)
+#     dr          = torch.clamp(radial_dist - cyl_radius, min=0.0)                   # (N,)
+#     dist_to_surf= torch.sqrt(dz**2 + dr**2)                                         # (N,)
+
+#     # ----------------------------------------------------------------------------
+#     # 4) Mask by reach_tol & closed, return vector of penalties
+#     # ----------------------------------------------------------------------------
+#     too_close = (dist_to_surf < reach_tol).float()         # (N,)
+#     bad       = closed * too_close                         # (N,)
+#     return penalty * bad

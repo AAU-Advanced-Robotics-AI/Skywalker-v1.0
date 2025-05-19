@@ -86,17 +86,9 @@ def cube_position_in_robot_root_frame(
     return obj_base
 
 
-
-def gripper_contact_state(env: ManagerBasedRLEnv) -> torch.Tensor:
-    term1 = env.action_manager.get_term("gripper_action")
-    term2 = env.action_manager.get_term("gripper_action2")
-
-    state1 = term1.get_grasping_mask()
-    state2 = term2.get_grasping_mask()
-
-    #print(f"[Debug] Gripper states (env 0): {state1[0].item()}, {state2[0].item()}")
-
-    return torch.stack([state1, state2], dim=1)
+def gripper_closed(env, grip_term="gripper_action"):
+    b = env.action_manager.get_term(grip_term)   # this is your base gripper
+    return b.is_closed().float().unsqueeze(1)
 
 def cylinder_closed(env, grip_term="gripper_action2"):
     g = env.action_manager.get_term(grip_term)   # this is your base gripper

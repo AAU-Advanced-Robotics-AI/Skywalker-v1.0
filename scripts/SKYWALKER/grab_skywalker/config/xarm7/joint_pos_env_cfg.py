@@ -3,6 +3,8 @@ from isaaclab.utils import configclass
 from grab_skywalker.skywalker_grab_env import GrabEnvCfg
 from grab_skywalker.xarm7 import XARM7_CFG
 
+
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
@@ -27,17 +29,37 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
+        # ── Spawn the robot with self-collision ON ───────────────────────────────
+
         self.scene.robot = XARM7_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
+
+            # mutate the UsdFileCfg that loads the robot
+            spawn=UsdFileCfg(
+                usd_path=XARM7_CFG.spawn.usd_path,
+                # copy across any other spawn fields you need (e.g. scale, semantic tags)
+                articulation_props=ArticulationRootPropertiesCfg(
+                    # ensure articulation is enabled...
+                    articulation_enabled=True,
+                    # ...and *this* turns on link↔link self‐contacts
+                    enabled_self_collisions=True,
+                    # you can tune solver iters if you like
+                    solver_position_iteration_count=8,
+                    solver_velocity_iteration_count=1,
+                    fix_root_link=False,
+                ),
+                # leave any other physics_material / rigid_body_props as-is,
+                # or raise contact_threshold there if you’re getting jitter.
+                **{ k:v for k,v in vars(XARM7_CFG.spawn).items()
+                    if k not in ("usd_path","articulation_props") }
+            ),
+
             init_state=ArticulationCfg.InitialStateCfg(
                 pos=(0, 0.85, 0.42),
-                #rot=(0.0, 0.0, 0.0, 1.0),
-                joint_pos={},        # ← inside InitialStateCfg
-                joint_vel={},        # ← inside InitialStateCfg
-                
+                joint_pos={},
+                joint_vel={},
             ),
         )
-
 # inside your __post_init__ of SkywalkerGrabEnvCfg, replace your wall_object/articulation block with:
 
         self.scene.object = ArticulationCfg(
@@ -120,12 +142,12 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
 
         self.scene.cylinder_frame = FrameTransformerCfg(
             prim_path="{ENV_REGEX_NS}/Robot/xarm7/link1",
-            debug_vis=True,
+            debug_vis=False,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
                     prim_path="{ENV_REGEX_NS}/Robot/xarm7/cylinder/Cylinder",
-                    offset=OffsetCfg(pos=[0.0, 0.5, -0.15], rot=[0, 0.707,0 ,0.707]),  # ✅ Set offset here
+                    offset=OffsetCfg(pos=[0.0, 0, 0], rot=[0, 0.707,0 ,0.707]),  # ✅ Set offset here
                 ),
             ],
         )
