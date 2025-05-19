@@ -30,7 +30,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         self.scene.robot = XARM7_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
             init_state=ArticulationCfg.InitialStateCfg(
-                pos=(0, 0.65, 0.42),
+                pos=(0, 0.85, 0.42),
                 #rot=(0.0, 0.0, 0.0, 1.0),
                 joint_pos={},        # ← inside InitialStateCfg
                 joint_vel={},        # ← inside InitialStateCfg
@@ -142,12 +142,12 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
         )
 
         self.scene.cube2 = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1",
+            prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube2_xform/Cube2",
             debug_vis=True,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube1_xform/Cube1"
+                    prim_path="{ENV_REGEX_NS}/Assembly/Assembly_xform/Cube2_xform/Cube2"
                 ),
             ],
         )

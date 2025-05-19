@@ -34,6 +34,12 @@ def ee_position_in_robot_root_frame(
 
     return ee_pos_b
 
+# def cube2_position_in_robot_root_frame(
+#     env: ManagerBasedRLEnv,
+#     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+#     cube_cfg:  SceneEntityCfg = SceneEntityCfg("cube2"),
+# ):
+#     return object_position_in_robot_root_frame(env, robot_cfg, cube_cfg)
 
 
 def object_position_in_robot_root_frame(
@@ -58,6 +64,27 @@ def object_position_in_robot_root_frame(
     #print(f"[Debug] Object pos in base (env 0): {obj_pos_b[0].cpu().numpy()}")
 
     return obj_pos_b
+
+
+
+def cube_position_in_robot_root_frame(
+    env: ManagerBasedRLEnv,
+    cube_cfg: SceneEntityCfg,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Return the object's position in the robot's root frame."""
+    robot = env.scene[robot_cfg.name]
+    root_pos  = robot.data.root_state_w[:, 0:3]   # (N,3)
+    root_quat = robot.data.root_state_w[:, 3:7]   # (N,4)
+    cube = env.scene[cube_cfg.name]
+    obj_pos_w = cube.data.target_pos_w[..., 0, :]   # works for RigidObject
+    obj_base, _ = subtract_frame_transforms(root_pos, root_quat, obj_pos_w)
+
+    # Optional debug
+    #print(f"[Debug] Object pos in base (env 0): {obj_pos_b[0].cpu().numpy()}")
+
+    return obj_base
+
 
 
 def gripper_contact_state(env: ManagerBasedRLEnv) -> torch.Tensor:
@@ -124,18 +151,48 @@ def is_cube_grasped(env,
 
 
 
+def time_fraction(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    """
+    Returns how far each env is through its episode, ∈ [0,1].
+    Internally keeps a per‐env counter (reset on env.reset), and
+    divides by (episode_length_s / sim.dt) drawn from cfg.
+    """
+    # lazy‐init static timer
+    if not hasattr(time_fraction, "_timer"):
+        # shape (num_envs,)
+        time_fraction._timer = torch.zeros(env.num_envs, device=env.device, dtype=torch.float32)
+    timer = time_fraction._timer
 
+    # increment every step
+    timer += 1.0
 
-# def object_position_in_robot_root_frame(
-#     env: ManagerBasedRLEnv,
-#     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-#     object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
-# ) -> torch.Tensor:
-#     """The position of the object in the robot's root frame."""
-#     robot: RigidObject = env.scene[robot_cfg.name]
-#     object: RigidObject = env.scene[object_cfg.name]
-#     object_pos_w = object.data.root_pos_w[:, :3]
-#     object_pos_b, _ = subtract_frame_transforms(
-#         robot.data.root_state_w[:, :3], robot.data.root_state_w[:, 3:7], object_pos_w
-#     )
-#     return object_pos_b
+    # reset where env.reset just happened
+    reset_buf = getattr(env, "reset_buf", None)       # shape (num_envs,) with 1 on reset
+    if reset_buf is not None:
+        # zero out those entries
+        mask = (reset_buf > 0).float().to(env.device)
+        timer = timer * (1.0 - mask)
+
+    # write back
+    time_fraction._timer = timer
+
+    # normalize
+    total_steps = env.cfg.episode_length_s / env.cfg.sim.dt
+    frac = (timer / total_steps).clamp(0.0, 1.0)
+
+    # return (num_envs,1)
+    return frac.unsqueeze(1)
+def ee_to_cube1_distance(env) -> torch.Tensor:
+    """(N,1) – Euclidean distance from EE to cube1 in world frame."""
+    ee_pos = ee_position_in_robot_root_frame(env)                    # (N,3)
+    c1_pos = cube_position_in_robot_root_frame(
+        env, cube_cfg=SceneEntityCfg("cube1"))                       # (N,3)
+    return torch.norm(ee_pos - c1_pos, dim=1, keepdim=True)         # (N,1)
+
+def ee_to_cube2_distance(env) -> torch.Tensor:
+    """(N,1) – Euclidean distance from EE to cube1 in world frame."""
+    ee_pos = ee_position_in_robot_root_frame(env)                    # (N,3)
+    c2_pos = cube_position_in_robot_root_frame(
+        env, cube_cfg=SceneEntityCfg("cube2"))                       # (N,3)
+    return torch.norm(ee_pos - c2_pos, dim=1, keepdim=True)         # (N,1)
+
