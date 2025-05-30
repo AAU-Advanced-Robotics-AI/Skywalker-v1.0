@@ -77,6 +77,10 @@ def goal_potential(
     """Smooth potential Φ(s) = exp(−‖x_base − x_goal‖ / std)."""
     root_pos = env.scene[robot_cfg.name].data.root_pos_w[:, :2]  # (N, 2)
     goal_pos = env.scene[goal_cfg.name].data.root_pos_w[:, :2]  # (N, 2)
+    # ── DEBUG ───────────────────────────────────────────────────
+    #print(f"[DEBUG] goal_potential → base_xy={root_pos[0].tolist()}, goal_xy={goal_pos[0].tolist()}")
+    # ────────────────────────────────────────────────────────────
+  
     dist = torch.norm(root_pos - goal_pos, dim=1)
     return torch.exp(-dist / std)
 
@@ -85,12 +89,69 @@ def mount_affinity(
     env: ManagerBasedRLEnv,
     cube_cfg: SceneEntityCfg,
     grip_term: str,
-    std: float = 0.30,
+    std: float = 0.25,
+    max_distance: float = 1.0,
+    linear_scale: float = 1.0,
+    debug: bool = False,
 ) -> torch.Tensor:
-    """Tiny lure toward *cube_cfg* if that cube is **not currently grasped**."""
-    near = object_ee_distance(env, cube_cfg=cube_cfg, std=std)  # (N,)
-    grasped = is_grasping_fixed_object(env, cube_cfg=cube_cfg, grip_term=grip_term)
-    return near * (1.0 - grasped)
+    """
+    Reward = [exp(−‖cube−EE‖ / std) + linear_term] * 𝟙[facing_forward & not grasping]
+
+    • Encourages moving toward cube when not holding anything
+    • No clamping to 1.0 — preserves gradients
+    • Only active when cube is in front of EE (in robot base frame)
+    """
+    # Get positions in robot base frame
+    ee_pos   = mdp.ee_position_in_robot_root_frame(env)  # (N, 3)
+    cube_pos = cube_position_in_robot_root_frame(env, cube_cfg=cube_cfg)                    # (N, 3)
+
+    diff = cube_pos - ee_pos                     # (N, 3)
+    dist = torch.norm(diff, dim=1)               # (N,)
+
+    # 1. Exponential reward (closer = better)
+    exp_term = torch.exp(-dist / std)
+
+    # 2. Linear bonus (farther = some small pull)
+    linear_term = linear_scale * (1.0 - dist / max_distance)
+
+    # Total (can go slightly over 1.0 — we want gradients!)
+    shaping = exp_term + torch.clamp(linear_term, min=0.0)
+
+    # 3. Must be in front of robot (x > 0 in base frame)
+    forward_mask = (diff[:, 0] > 0).float()
+
+    gripper = env.action_manager.get_term(grip_term)
+    is_closed = gripper.is_closed().float()  # (N,)
+
+    g1 = is_grasping_fixed_object(env, SceneEntityCfg("cube1"), grip_term=grip_term)
+    g2 = is_grasping_fixed_object(env, SceneEntityCfg("cube2"), grip_term=grip_term)
+    holding_raw = (g1 + g2).clamp(0.0, 1.0)
+
+    # Only count as "holding" if gripper is actually closed
+    holding = holding_raw * is_closed
+
+    # print(f"  → Gripper closed [0]: {is_closed[0].item()}")
+    # print(f"  → Holding raw    [0]: {holding_raw[0].item()}")
+    # print(f"  → Holding final  [0]: {holding[0].item()}")
+
+
+    # 5. Final reward
+    final_reward = shaping * forward_mask * (1.0 - holding)
+
+    # 6. Debug print
+    if debug:
+        print(f"[DEBUG] mount_affinity ({cube_cfg.name})")
+        print(f"  → EE pos   [0]: {ee_pos[0].detach().cpu().numpy()}")
+        print(f"  → Cube pos [0]: {cube_pos[0].detach().cpu().numpy()}")
+        print(f"  → Diff     [0]: {diff[0].detach().cpu().numpy()}")
+        print(f"  → Dist     [0]: {dist[0].item():.5f}")
+        print(f"  → Exp term [0]: {exp_term[0].item():.5f}")
+        print(f"  → Linear   [0]: {linear_term[0].item():.5f}")
+        print(f"  → Final R  [0]: {final_reward[0].item():.5f}")
+
+    return final_reward
+
+
 
 
 
@@ -118,6 +179,18 @@ def drag_carry_reward(
     # 2) How far is your base from the goal right now?
     base_xy = env.scene[robot_cfg.name].data.root_pos_w[:, :2]  # (N,2)
     goal_xy = env.scene[goal_cfg.name].data.root_pos_w[:, :2]   # (N,2)
+
+    #   # ── DEBUG: base vs. cube goal for drag ────────────────────────────────
+    # if cube_cfg.name == "cube1":
+    #     print(f"[DEBUG] drag_cube1 → base_xy={base_xy[0].tolist()}, dock_xy={goal_xy[0].tolist()}")
+    # elif cube_cfg.name == "cube2":
+    #     print(f"[DEBUG] drag_cube2 → base_xy={base_xy[0].tolist()}, goal_xy={goal_xy[0].tolist()}")
+    # # ─────────────────────────────────────────────────────────────────────
+
+      # ── DEBUG ───────────────────────────────────────────────────
+   # print(f"[DEBUG] drag_carry_reward({cube_cfg.name}) → base_xy={base_xy[0].tolist()}, goal_xy={goal_xy[0].tolist()}")
+    # ────────────────────────────────────────────────────────────
+   
     dist    = torch.norm(base_xy - goal_xy, dim=1)             # (N,)
 
     # 3) Shape it with an exp: closer → larger reward
@@ -129,7 +202,7 @@ def drag_carry_reward(
 
 
 
-def object_position_in_robot_root_frame(
+def cube_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     cube_cfg: SceneEntityCfg,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -173,14 +246,22 @@ def object_ee_distance(
     obj = env.scene[cube_cfg.name]
     obj_pos_w = obj.data.target_pos_w[..., 0, :]    # (N,3)
 
-    # 4) Transform both into robot‐base frame
-    obj_base, _ = subtract_frame_transforms(root_pos, root_quat, obj_pos_w)
-    ee_base,  _ = subtract_frame_transforms(root_pos, root_quat, ee_pos_w)
+    ee_base,   _ = subtract_frame_transforms(root_pos, root_quat, ee_pos_w)
+    cube_base, _ = subtract_frame_transforms(root_pos, root_quat, obj_pos_w)
+    dist = torch.norm(cube_base - ee_base, dim=1)   # (N,)
+    near = torch.exp(-dist / std)                   # (N,)
 
-    # 5) Euclidean distance & exponential reward
-    dist = torch.norm(obj_base - ee_base, dim=1)   # (N,)
-    return torch.exp(-dist / std)
+    # ── DEBUG: show raw distance + shaping value for env 0 ─────────────
+    # print(
+    #     f"[DEBUG] object_ee_distance({cube_cfg.name}) → "
+    #     f"cube_base={cube_base[0].tolist()}, "
+    #     f"ee_base={ee_base[0].tolist()}, "
+    #     f"dist={dist[0].item():.3f}, "
+    #     f"near={near[0].item():.3f}"
+    # )
+    # ─────────────────────────────────────────────────────────────────────
 
+    return near
 
 
 
@@ -190,21 +271,22 @@ def hold_far_cube_penalty(
     cube2_cfg: SceneEntityCfg = SceneEntityCfg("cube2"),
     grip_term: str = "gripper_action",
     goal_cfg:  SceneEntityCfg = SceneEntityCfg("goal_marker"),
-    reach_thresh: float = 0.6,     # outer radius   (m)
-    falloff:      float = 0.25,    # width of the sigmoid (m)
+    reach_thresh: float = 0.1,     # outer radius   (m)
+    falloff:      float = 0.05,    # width of the sigmoid (m)
     lam:          float = 1.0,     # scale of the penalty
     release_bonus: float = 2.0,    # reward for opening in the zone
     warmup_steps: int   = 150,     # ignore first ~1.5 s of every episode
 ) -> torch.Tensor:
     """
-    • −λ · σ(zone)  if holding the cube that is farther from the goal  
-    • +release_bonus·σ(zone)  if *no* cube is held (helps PPO notice the gradient)
+    • −λ·σ(dock_zone)   if holding the cube that is farther from the goal_marker  
+    • +release_bonus·σ(dock_zone)   if *no* cube is held (helps PPO notice the gradient)
 
-    σ(zone) is a smooth step that reaches ~0.5 at reach_thresh and
-    approaches 1.0 as the base sits exactly midway between both cubes.
+    σ(dock_zone) is a smooth step that reaches ~0.5 at reach_thresh  
+    around the dock_marker, and approaches 1.0 as the robot’s base  
+    sits exactly at the marker.
     """
     # ------------------------------------------------------------------
-    # 1) Grasp flags  →  (N,)    (helper returns (N,1) on older versions)
+    # 1) Grasp flags → (N,)
     # ------------------------------------------------------------------
     hold1 = is_grasping_fixed_object(env, cube_cfg=cube1_cfg,
                                      grip_term=grip_term).view(-1)
@@ -212,44 +294,166 @@ def hold_far_cube_penalty(
                                      grip_term=grip_term).view(-1)
 
     # ------------------------------------------------------------------
-    # 2) Which cube is farther from the goal?
+    # 2) Which cube is farther from the final goal?
     # ------------------------------------------------------------------
-    c1_xy   = env.scene[cube1_cfg.name].data.target_pos_w[..., 0, :2]   # (N,2)
+    c1_xy   = env.scene[cube1_cfg.name].data.target_pos_w[..., 0, :2]  # (N,2)
     c2_xy   = env.scene[cube2_cfg.name].data.target_pos_w[..., 0, :2]
     goal_xy = env.scene[goal_cfg.name].data.root_pos_w[:, :2]
 
+     # ── DEBUG: exact cube positions (first env only) ─────────────────────
+    #print(f"[DEBUG] cube1_xy={c1_xy[0].tolist()}, cube2_xy={c2_xy[0].tolist()}")
+    # ─────────────────────────────────────────────────────────────────────
+
+   # ── DEBUG ───────────────────────────────────────────────────
+    #print(f"[DEBUG] hold_far → c1_xy={c1_xy[0].tolist()}, c2_xy={c2_xy[0].tolist()}, goal_xy={goal_xy[0].tolist()}")
+    # ────────────────────────────────────────────────────────────
+
     farther1 = (torch.norm(c1_xy - goal_xy, dim=1) >
-                torch.norm(c2_xy - goal_xy, dim=1)).float()             # (N,)
+                torch.norm(c2_xy - goal_xy, dim=1)).float()            # (N,)
     farther2 = 1.0 - farther1
 
-    hold_wrong = hold1 * farther1 + hold2 * farther2                   # (N,)
+    hold_wrong = hold1 * farther1 + hold2 * farther2                  # (N,)
 
     # ------------------------------------------------------------------
-    # 4) Optional bonus for releasing inside the zone
+    # 3) Zone around dock_marker (after warm-up)
     # ------------------------------------------------------------------
-    # 3)  Zone only cares about **Cube 2 distance** and only **after warm-up**
-    base_xy   = env.scene["robot"].data.root_pos_w[:, :2]
-    d2        = torch.norm(base_xy - c2_xy, dim=1)               # (N,)
-    zone_raw  = torch.sigmoid((reach_thresh - d2) / falloff)     # (N,)
-    reset_flags = getattr(env, "reset_buf", None)          # (N,)  1 → has just reset
+    base_xy    = env.scene["robot"].data.root_pos_w[:, :2]             # (N,2)
+    dock_xy    = env.scene["dock_marker"].data.root_pos_w[:, :2]       # (N,2)
+
+        # ── DEBUG ───────────────────────────────────────────────────
+    #print(f"[DEBUG] hold_far → dock_xy={dock_xy[0].tolist()}, base_xy={base_xy[0].tolist()}")
+    # ────────────────────────────────────────────────────────────
+
+    d_dock     = torch.norm(base_xy - dock_xy, dim=1)                  # (N,)
+    zone_raw   = torch.sigmoid((reach_thresh - d_dock) / falloff)      # (N,)
+
+    reset_flags = getattr(env, "reset_buf", None)                      # (N,)
     if not hasattr(hold_far_cube_penalty, "_step_timer"):
         hold_far_cube_penalty._step_timer = torch.zeros(
             env.num_envs, dtype=torch.int32, device=env.device
         )
-
+    # step timer per env:
     timer = hold_far_cube_penalty._step_timer
-    timer += 1                                             # advance every sim step
+    timer += 1
     if reset_flags is not None:
-        timer *= (1 - reset_flags.int())                   # zero where env just reset
+        timer *= (1 - reset_flags.int())
+    active = (timer > warmup_steps).float()                             # (N,)
+    zone_w = zone_raw * active                                         # (N,)
 
-    active = (timer > warmup_steps).float()                # (N,)
-    zone_w = zone_raw * active                              # (N,)
+    # ------------------------------------------------------------------
+    # 4) Optional bonus for releasing inside the dock zone
+    # ------------------------------------------------------------------
+    released = 1.0 - (hold1 + hold2)                                   # (N,)
+    bonus    = release_bonus * released * zone_w                       # (N,)
 
-    released  = 1.0 - (hold1 + hold2)
-    bonus     = release_bonus * released * zone_w
+    # ------------------------------------------------------------------
+    # 5) Combine penalty + bonus
+    # ------------------------------------------------------------------
+    # at the very end of hold_far_cube_penalty before return
+    dock_mask = (d_dock < reach_thresh).float()         # 1 only inside zone
+    penalty   = -lam * hold_wrong * zone_w * dock_mask  # penalise only when docked
+                        # (N,)
+    return penalty + bonus                                             # (N,)
 
-    return -lam * hold_wrong * zone_w + bonus
+def gripper_close_near_cube2(
+    env: "ManagerBasedRLEnv",
+    cube_cfg:   SceneEntityCfg = SceneEntityCfg("cube2"),
+    ee_cfg:     SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    grip_term:  str            = "gripper_action",
+    tol:        float          = 0.05,
+    reward:     float          = 0.4,
+    reuse_delay:int            = 60,
+) -> torch.Tensor:
+    """
+    +reward **once** when the gripper **closes** within <tol> metres of cube2.
+    Cooldown prevents over-rewarding repeated closes near the same spot.
+    """
+    # 1. Distance from EE to cube
+    ee    = env.scene[ee_cfg.name]
+    cube  = env.scene[cube_cfg.name]
+    dist  = torch.norm(ee.data.target_pos_w[..., 0, :] - cube.data.root_pos_w, dim=1)
+    near  = (dist < tol).float()                                      # (N,)
 
+    # 2. Detect closing event
+    grip = env.action_manager.get_term(grip_term)
+    closed_now = grip.is_closed().float()
+    if not hasattr(gripper_close_near_cube2, "_prev_closed"):
+        gripper_close_near_cube2._prev_closed = closed_now.clone()
+        gripper_close_near_cube2._cooldowns   = torch.zeros(
+            env.num_envs, dtype=torch.int32, device=env.device
+        )
+
+    prev_closed = gripper_close_near_cube2._prev_closed
+    edge        = closed_now * (1.0 - prev_closed)                    # 1 = just closed
+    gripper_close_near_cube2._prev_closed = closed_now.clone()
+
+    # 3. Cooldown logic
+    cd = gripper_close_near_cube2._cooldowns
+    cd.clamp_(min=0)
+    edge_cd_ok = edge * (cd == 0).float()
+    cd[:] = torch.where(edge_cd_ok > 0, reuse_delay, torch.maximum(cd - 1, torch.tensor(0, device=cd.device)))
+
+    # 4. Final reward
+    return reward * edge_cd_ok * near
+
+
+
+def gripper_open_near_marker(
+    env: "ManagerBasedRLEnv",
+    marker_cfg: SceneEntityCfg = SceneEntityCfg("dock_marker"),
+    robot_cfg:  SceneEntityCfg = SceneEntityCfg("robot"),
+    grip_term:  str           = "gripper_action",
+    tol:        float         = 0.1,     # metres around the marker
+    reward:     float         = 1.0,      # positive pay-out
+    reuse_delay:int           = 60,       # frames (≈0.5 s @120 Hz)
+) -> torch.Tensor:
+    """
+    +reward  **once** when the gripper **opens** inside <tol> of <marker_cfg>.
+    Further opens are ignored until <reuse_delay> steps have elapsed.
+    """
+    # ------------------------------------------------------------------
+    # 1) Distance base ↔ marker
+    # ------------------------------------------------------------------
+    robot  = env.scene[robot_cfg.name]
+    marker = env.scene[marker_cfg.name]
+
+    base_xy   = robot.data.root_pos_w[:, :2]                          # (N,2)
+    if hasattr(marker.data, "root_pos_w"):
+        marker_xy = marker.data.root_pos_w[:, :2]
+    else:
+        marker_xy = marker.data.target_pos_w[..., 0, :2]
+
+    near = (torch.norm(base_xy - marker_xy, dim=1) < tol).float()     # (N,)
+
+    # ------------------------------------------------------------------
+    # 2) Detect rising edge “closed → open”
+    # ------------------------------------------------------------------
+    grip  = env.action_manager.get_term(grip_term)
+    open_now  = 1.0 - grip.is_closed().float()                        # 1=open
+    if not hasattr(gripper_open_near_marker, "_prev_open"):
+        # first call → initialise buffers
+        gripper_open_near_marker._prev_open   = open_now.clone()
+        gripper_open_near_marker._cooldowns   = torch.zeros(
+            env.num_envs, dtype=torch.int32, device=env.device
+        )
+
+    prev_open = gripper_open_near_marker._prev_open
+    edge      = open_now * (1.0 - prev_open)                          # 1 on open-edge
+    gripper_open_near_marker._prev_open = open_now.clone()            # update
+
+    # ------------------------------------------------------------------
+    # 3) Cool-down logic (per env)
+    # ------------------------------------------------------------------
+    cd        = gripper_open_near_marker._cooldowns
+    cd.clamp_(min=0)
+    edge_cd_ok = edge * (cd == 0).float()                             # pay only if CD=0
+    # reset CD where we just paid, otherwise count down
+    cd[:] = torch.where(edge_cd_ok > 0, reuse_delay, torch.maximum(cd-1, torch.tensor(0, device=cd.device)))
+
+    # ------------------------------------------------------------------
+    # 4) Final reward
+    # ------------------------------------------------------------------
+    return reward * edge_cd_ok * near                                 # (N,)
 
 
 def is_grasping_fixed_object(
@@ -271,6 +475,11 @@ def is_grasping_fixed_object(
 
     ee_pos = ee.data.target_pos_w[..., 0, :]
     cube_pos = cube.data.target_pos_w[..., 0, :]
+
+        # ── DEBUG: cube’s full 3D pose ───────────────────────────────────────
+    #print(f"[DEBUG] is_grasping '{cube_cfg.name}' → cube_pos={cube_pos[0].tolist()}, ee_pos={ee_pos[0].tolist()}")
+    # ─────────────────────────────────────────────────────────────────────
+
     cube_ent = env.scene[cube_cfg.name]
     # print(f"[DEBUG] cube '{cube_cfg.name}' → transformer prim = {cube_ent.cfg.prim_path}")
     # print(f"[DEBUG] cube '{cube_cfg.name}' world_pos = {cube_ent.data.target_pos_w[0,0].tolist()}")
@@ -359,15 +568,76 @@ def gripper2_docking_reward(
         target_xy, _ = target.get_world_poses()
         target_xy = target_xy[:, :2]
 
+    # ── DEBUG ───────────────────────────────────────────────────
+    #print(f"[DEBUG] gripper2_dock → robot_xy={robot_xy[0].tolist()}, target_xy={target_xy[0].tolist()}")
+    # ──
+
     d = torch.norm(robot_xy - target_xy, dim=1)          # (N,)
 
 
     base_reward = torch.exp(-d / std)          # [0,1]
     closed      = grip.is_closed().float()     # 0/1
     near        = (d < tol).float()            # 0/1
+    total_reward = base_reward + close_bonus*closed*near + far_penalty*closed*(1-near)
+    # print(f"[DEBUG] gripper2_dock → base_reward={base_reward[0].item():.3f}, "
+    #     f"closed={closed[0].item()}, near={near[0].item()}, "
+    #     f"total={total_reward[0].item():.3f}")
+    return total_reward
 
-    return base_reward + close_bonus * closed * near + far_penalty * closed * (1 - near)
+def gripper1_docking_reward(
+    env: "ManagerBasedRLEnv",
+    cube_cfg: SceneEntityCfg,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    grip_term: str = "gripper_action",
+    dock_cfg: SceneEntityCfg = SceneEntityCfg("dock_marker"),
+    goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
+    std: float = 0.12,
+    tol: float = 0.05,
+    dock_tol: float = 0.25,
+    goal_bonus_scale: float = 1.5,   # ⟵ new: reward for moving toward goal
+    close_bonus: float = 1.0,
+    far_penalty: float = -0.3,
+) -> torch.Tensor:
+    """
+    Encourages grasping cube2 from the docking zone,
+    AND rewards moving robot base toward goal *after* grasping.
+    """
+    # Positions
+    cube_ent = env.scene[cube_cfg.name]
+    cube_pos = cube_ent.data.root_pos_w if hasattr(cube_ent.data, "root_pos_w") \
+               else cube_ent.data.target_pos_w[..., 0, :]
 
+    ee_pos     = env.scene[ee_frame_cfg.name].data.target_pos_w[..., 0, :]
+    robot_pos  = env.scene["robot"].data.root_pos_w[:, :2]
+    dock_pos   = env.scene[dock_cfg.name].data.root_pos_w[:, :2]
+    goal_pos   = env.scene[goal_cfg.name].data.root_pos_w[:, :2]
+
+    # Distance to cube
+    d        = torch.norm(ee_pos - cube_pos, dim=1)
+    base_r   = torch.exp(-d / std)
+
+    near     = (d < tol).float()
+    grip     = env.action_manager.get_term(grip_term)
+    closed   = grip.is_closed().float()
+
+    # Inside docking zone
+    dock_dist  = torch.norm(robot_pos - dock_pos, dim=1)
+    near_dock  = (dock_dist < dock_tol).float()
+
+    # ---------------------------------------------
+    # Phase 1: Encourage grasping from docking zone
+    # ---------------------------------------------
+    dock_reward = (base_r
+                 + close_bonus * closed * near
+                 + far_penalty * closed * (1.0 - near)) * near_dock
+
+    # ---------------------------------------------
+    # Phase 2: Once grasped, reward movement to goal
+    # ---------------------------------------------
+    goal_dist = torch.norm(robot_pos - goal_pos, dim=1)
+    goal_reward = torch.exp(-goal_dist / 0.5) * closed  # smoother incentive
+
+    return dock_reward + goal_bonus_scale * goal_reward
 
 
 
@@ -494,7 +764,7 @@ def cylinder_self_grasp_penalty(
     env,
     ee_cfg: SceneEntityCfg       = SceneEntityCfg("ee_frame"),
     cyl_cfg: SceneEntityCfg      = SceneEntityCfg("cylinder_frame"),
-    grip_term: str               = "gripper_action2",
+    grip_term: str               = "gripper_action",
     reach_tol: float             = 0.02,    # meters
     penalty: float               = -1.0,
 ):
@@ -574,8 +844,8 @@ def wall_proximity_penalty(
         SceneEntityCfg("cube2"),
         SceneEntityCfg("cube3"),
     ],
-    reach_tol:float          = 0.25,
-    penalty:  float          = -1.0,
+    reach_tol:float          = 0.4,
+    penalty:  float          = -20.0,
 ):
     # 1) Closed‐gripper mask & EE Y pos
     closed = env.action_manager.get_term(grip_term).is_closed().float()   # (N,)
@@ -596,8 +866,8 @@ def wall_proximity_penalty(
 
     # ── DEBUG ────────────────────────────────────────────────────────────
    
-    print(f"[DEBUG][Env {0}] front_y={front_y[0].item():.3f}, "
-              f"ee_y={ee_y[0].item():.3f}, closed={closed[0].item()}")
+    # print(f"[DEBUG][Env {0}] front_y={front_y[0].item():.3f}, "
+    #           f"ee_y={ee_y[0].item():.3f}, closed={closed[0].item()}")
     # ─────────────────────────────────────────────────────────────────────
 
     # 5) Penetration into wall slab

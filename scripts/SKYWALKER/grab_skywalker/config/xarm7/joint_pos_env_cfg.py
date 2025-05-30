@@ -22,7 +22,7 @@ from isaaclab.sensors.frame_transformer.frame_transformer_cfg import (
 import grab_skywalker.mdp as mdp
 from math import sqrt
 BASE_DIR = os.path.dirname(__file__)
-USD_PATH  = os.path.join(BASE_DIR, "wall_cube2.usd")
+USD_PATH  = os.path.join(BASE_DIR, "wall_cube2.02.usd")
 
 @configclass
 class SkywalkerGrabEnvCfg(GrabEnvCfg):
@@ -103,6 +103,18 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
              init_state=RigidObjectCfg.InitialStateCfg(pos=[0.1, -0.2, 0]),
         )
 
+        self.scene.dock_marker = RigidObjectCfg(
+            prim_path="{ENV_REGEX_NS}/DockMarker",
+            spawn=sim_utils.SphereCfg(
+                radius=0.03,
+                visual_material=PreviewSurfaceCfg(diffuse_color=(0.2, 0.0, 1.0)),
+                collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+                rigid_props=RigidBodyPropertiesCfg(disable_gravity=True),
+                mass_props=MassPropertiesCfg(mass=0.0),
+            ),
+             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.1, -0.4, 0]),
+        )
+
         # ── actions ───────────────────────────────────────────────────
         self.actions.arm_action = mdp.JointPositionActionCfg(
             asset_name="robot",
@@ -115,7 +127,7 @@ class SkywalkerGrabEnvCfg(GrabEnvCfg):
             gripper_prim_path="{ENV_REGEX_NS}/Robot/xarm7/link_eef",
             offset=[0,0,0.1],
             rot_offset = [0, -0.707,0 ,0.707],
-            grip_threshold= 0.1
+            grip_threshold= 0.05
         )
 
         self.actions.gripper_action2 = mdp.SurfaceGripperActionCfg(

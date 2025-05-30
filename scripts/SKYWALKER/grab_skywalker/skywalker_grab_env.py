@@ -4,6 +4,7 @@ from dataclasses import MISSING
 import math
 
 #from scripts.SKYWALKER.skywalker2.mdp.terminations import robot_reached_goal
+#from scripts.SKYWALKER.grab_skywalker.mdp.rewards import goal_potential
 from sympy import Q
 import torch
 
@@ -45,7 +46,7 @@ from typing import Optional
 from xarm7 import XARM7_CFG, XARM7_HIGH_PD_CFG
 
 from grab_skywalker.mdp.reset_goal_away_from_origin import reset_goal_within_reach
-from grab_skywalker.mdp.reset_goal_fixed import reset_goal_fixed
+from grab_skywalker.mdp.reset_goal_fixed import reset_goal_fixed as  _reset_goal_fixed
 
 
 
@@ -84,6 +85,8 @@ class SkywalkerGrabSceneCfg(InteractiveSceneCfg):
     #wall: AssetBaseCfg | RigidObjectCfg | DeformableObjectCfg = MISSING
     
     goal_marker: AssetBaseCfg | RigidObjectCfg | DeformableObjectCfg = MISSING
+
+    dock_marker: AssetBaseCfg | RigidObjectCfg | DeformableObjectCfg = MISSING
 
     cube1: FrameTransformerCfg = MISSING
 
@@ -146,11 +149,21 @@ class ObservationsCfg:
                                     )
         time_frac   = ObsTerm(func=mdp.time_fraction)
 
+        cube1_grasped  = ObsTerm(func=mdp.is_cube1_grasped)
+        cube2_grasped  = ObsTerm(func=mdp.is_cube2_grasped)
+        cube2_relative = ObsTerm(func=mdp.cube2_relative_to_cube1)
+
+
         goal_delta      = ObsTerm(func=mdp.goal_position_in_robot_root_frame)
         gripper_contact = ObsTerm(func=mdp.gripper_closed)
         #grasp_flag      = ObsTerm(func=mdp.is_cube_grasped)
         cylinder_closed = ObsTerm(func=mdp.cylinder_closed)
         root_vel_xy     = ObsTerm(func=mdp.root_lin_vel_xy)
+
+
+        # cube1_grasp_count = ObsTerm(func=mdp.cube1_grasp_count)
+        # cube2_grasp_count = ObsTerm(func=mdp.cube2_grasp_count)
+
 
         def __post_init__(self):
             self.enable_corruption   = False
@@ -180,15 +193,23 @@ class EventCfg:
     )
 
     reset_goal_fixed = EventTerm(
-        func   = reset_goal_fixed,
+        func   = _reset_goal_fixed,   # now unambiguously the function
         mode   = "reset",
         params = {
             "asset_cfg": SceneEntityCfg("goal_marker"),
-            "pos": (0.30, -0.45, 0.40),   # X, Y, Z in world frame
-            #"yaw": 0.0,                  # facing forward
+            "pos":       (0.20, -0.25, 0.42),
         },
     )
-    
+
+    reset_dock_fixed = EventTerm(
+        func   = _reset_goal_fixed,   # again, the function, not the class var
+        mode   = "reset",
+        params = {
+            "asset_cfg": SceneEntityCfg("dock_marker"),
+            "pos":       (0.0, 0.4, 0.42),
+        },
+    )
+
 
 
     # reset_goal = EventTerm(
@@ -229,57 +250,131 @@ class RewardsCfg:
     # ------------------------------------------------------------------
     # 0) Potential shaping  (navigation progress signal)
     # ------------------------------------------------------------------
-    goal_potential = RewTerm(func=mdp.goal_potential, weight=3.0)
+    goal_potential1 = RewTerm(func=mdp.goal_potential, weight=0.0)
 
     # ------------------------------------------------------------------
     # 1) Grasp value – pays more for the cube nearer the goal
     # ------------------------------------------------------------------
     drag_cube1 = RewTerm(
         func   = mdp.drag_carry_reward,
-        weight = 2,
-        params = {"cube_cfg": SceneEntityCfg("cube1"),
-                  "grip_term": "gripper_action"},
+        weight = 5,
+        params = {
+            "cube_cfg":  SceneEntityCfg("cube1"),
+            "grip_term": "gripper_action",
+            "goal_cfg":  SceneEntityCfg("dock_marker"),   # ← drag cube1 to dock
+        },
     )
     drag_cube2 = RewTerm(
         func   = mdp.drag_carry_reward,
-        weight = 2,
-        params = {"cube_cfg": SceneEntityCfg("cube2"),
-                  "grip_term": "gripper_action"},
+        weight = 0,
+        params = {
+            "cube_cfg":  SceneEntityCfg("cube2"),
+            "grip_term": "gripper_action",
+            "goal_cfg":  SceneEntityCfg("goal_marker"),   # ← drag cube1 to dock
+        },
     )
 
     # ------------------------------------------------------------------
     # 2) Exploration lures  (fade out later via curriculum if desired)
     # ------------------------------------------------------------------
     mount_affinity_c1 = RewTerm(
-        func   = mdp.mount_affinity, weight = 5.0,
+        func   = mdp.mount_affinity, weight = 0.0,
         params = {"cube_cfg": SceneEntityCfg("cube1"),
+                  "std" : 0.25,
                   "grip_term": "gripper_action"},
     )
 
 
     mount_affinity_c2 = RewTerm(
-        func   = mdp.mount_affinity, weight = 5.0,
+        func   = mdp.mount_affinity, weight = 0.0,
         params = {"cube_cfg": SceneEntityCfg("cube2"),
+                  "std" : 0.35,
                   "grip_term": "gripper_action"},
     )
+
+    # ── 4b) Dock gripper-1 onto cube2’s mounting point ───────────────────────────
+    gripper1_docking_cube2 = RewTerm(
+        func   = mdp.gripper1_docking_reward,
+        weight = 0.0,  # curriculum will turn this on later
+        params = {
+            "cube_cfg":     SceneEntityCfg("cube2"),
+            "grip_term":    "gripper_action",
+            "dock_cfg":     SceneEntityCfg("dock_marker"),   # ⬅ use this!
+            "std":          0.20,
+            "tol":          0.08,
+            "dock_tol":     0.1,      # or adjust to your scene scale
+            "close_bonus":  1.0,
+            "far_penalty": -0.4,
+        },
+    )
+
+    # gripper_attempt_c2 = RewTerm(
+    #     func = mdp.gripper_close_near_cube2,
+    #     weight = 0,
+    #     params = {
+    #         "cube_cfg":  SceneEntityCfg("cube2"),
+    #         "grip_term": "gripper_action",
+    #         "tol":       0.05,
+    #         "reward":    0.4,
+    #         "reuse_delay": 60,
+    #     }
+    # )
+
 
     # ------------------------------------------------------------------
     # 3) Hand-off logic
     # ------------------------------------------------------------------
+    # hold_far_cube_penalty = RewTerm(
+    #     func   = mdp.hold_far_cube_penalty,
+    #     weight = 0.0,                       # λ baked in helper
+    #     params = {"reach_thresh": 0.5,
+    #               "release_bonus": 3.0},
     hold_far_cube_penalty = RewTerm(
         func   = mdp.hold_far_cube_penalty,
-        weight = 2.0,                       # λ baked in helper
-        params = {"reach_thresh": 0.5,
-                  "release_bonus": 2.0},
+        weight = 0.0,  # curriculum sets to 1.0 at step 13,000
+        params = {
+            "reach_thresh": 0.40,     # slightly tighter than 0.50
+            "falloff":      0.30,     # keep falloff gentle
+            "lam":          1.5,      # ↓ less harsh
+            "release_bonus": 1.0,     # ↑ encourage smoother releases
+        },
     )
+
+    hold_far_cube_penalty_tight = RewTerm(
+        func   = mdp.hold_far_cube_penalty,
+        weight = 0.0,  # curriculum sets to 2.0 at step 30,000
+        params = {
+            "reach_thresh": 0.45,     # wider zone
+            "falloff":      0.20,     # mild tapering
+            "lam":          2.0,      # ↑ stronger than soft version
+            "release_bonus": 0.75,    # balanced
+        },
+    )
+
+
+    let_go_bonus = RewTerm(
+        func   = mdp.gripper_open_near_marker,
+        weight = 4.0,                       # scale as you like
+        params = {
+            "marker_cfg": SceneEntityCfg("dock_marker"),
+            "grip_term":  "gripper_action",
+            "tol":        0.15,
+            "reward":     1.0,
+            "reuse_delay":60,               # ~0.5 s lock-out
+        },
+    )
+
 
     # ------------------------------------------------------------------
     # 4) Dock gripper-2 on floor
     # ------------------------------------------------------------------
     dock_near_cube2 = RewTerm(
         func   = mdp.gripper2_docking_reward,
-        weight = 5,
-        params = {"target_cfg": SceneEntityCfg("cube2")},
+        weight = 2,
+        params = {"target_cfg": SceneEntityCfg("dock_marker"),
+                  "std": 0.15,
+
+                  "tol": 0.08},
     )
     # dock_at_goal = RewTerm(
     #     func   = mdp.gripper2_docking_reward,
@@ -290,8 +385,8 @@ class RewardsCfg:
     # ------------------------------------------------------------------
     # 5) Pose hygiene
     # ------------------------------------------------------------------
-    ee_alignment          = RewTerm(func=mdp.ee_cube_orientation_alignment, weight=1.0)
-    ee_approach_alignment = RewTerm(func=mdp.ee_approach_alignment_in_base, weight=0.8)
+    #ee_alignment          = RewTerm(func=mdp.ee_cube_orientation_alignment, weight=1.0)
+    #ee_approach_alignment = RewTerm(func=mdp.ee_approach_alignment_in_base, weight=0.8)
 
     # ------------------------------------------------------------------
     # 6) Gripper-state discipline
@@ -317,13 +412,13 @@ class RewardsCfg:
 
     wall_grasp = RewTerm(
         func=mdp.wall_proximity_penalty,
-        weight=0.5,
+        weight=1.0,
         params={}
     )
     
     cylinder_grasp = RewTerm(
         func=mdp.cylinder_self_grasp_penalty,
-        weight=1.0,
+        weight=2.0,
         params={}
     )
 
@@ -341,97 +436,270 @@ class RewardsCfg:
 # ----------------------------------------------------------------------
 @configclass
 class CurriculumCfg:
-    """4‐phase curriculum for Skywalker mount‐grasping."""
+    """Curriculum for phased handoff from Cube 1 → Cube 2 + docking."""
 
-    # ── Phase A (0 steps): only learn to grasp cube1 ───────────────────────────
-    grab1_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"grab_cube1", "weight":6.0, "num_steps":0},
-    )
-    drag1_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"drag_cube1", "weight":0.0, "num_steps":0},
-    )
-    grab2_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"grab_cube2", "weight":0.0, "num_steps":0},
-    )
-    mount_c1_affinity = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"mount_affinity_c1", "weight":5.0, "num_steps":0},
-    )
-    wall_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"wall_grasp", "weight":1.0, "num_steps":0},
-    )
-    cyl_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"cylinder_grasp", "weight":1.0, "num_steps":0},
-    )
-    selfcol_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"self_collision", "weight":1.0, "num_steps":0},
-    )
-    timepen_off = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"time_step_penalty", "weight":0.0, "num_steps":0},
-    )
+    # ─── Phase A (0–8k): Cube 1 mastery ───
+    grab1_strong    = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube1", "weight": 1.0, "num_steps": 0})
+    drag1_on        = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube1", "weight": 1.0, "num_steps": 0})
+    mount_c1_on     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c1", "weight": 0.5, "num_steps": 0})
+    grab2_off       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube2", "weight": 0.0, "num_steps": 0})
+    drag2_off       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube2", "weight": 0.0, "num_steps": 0})
+    dock2_off       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "gripper1_docking_cube2", "weight": 0.0, "num_steps": 0})
+    goal_pot_off    = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 0.0, "num_steps": 0})
 
-    # ── Phase B (10 000 steps): enable drag_cube1 and cube2 lure ──────────────
-    drag1_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"drag_cube1", "weight":2.0, "num_steps":3_000},
-    )
-    grab2_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"grab_cube2", "weight":5.0, "num_steps":3_000},
-    )
-    mount_c2_affinity = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"mount_affinity_c2", "weight":5.0, "num_steps":3_000},
-    )
+    # ─── Phase B (8k–18k): Cube 2 intro, Cube 1 decays ───
+    mount_c2_on     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c2", "weight": 1.0, "num_steps": 9000})
+    grab2_on        = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube2", "weight": 5.0, "num_steps": 11000})
+    drag2_on        = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube2", "weight": 5.0, "num_steps": 13000})
+    let_go_on       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "let_go_bonus", "weight": 5.0, "num_steps": 12000})
+    hold_far_soft   = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "hold_far_cube_penalty", "weight": 1.0, "num_steps": 13000})
+    goal_pot_temp   = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 1.0, "num_steps": 14000})
+    dock2_early     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "gripper1_docking_cube2", "weight": 3.0, "num_steps": 15000})
 
-    # ── Phase C (20 000 steps): ramp in wall & base/collision penalties ──────
-    wall_ramp = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"wall_grasp", "weight":0.5, "num_steps":5000},
-    )
-    cyl_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"cylinder_grasp", "weight":1.0, "num_steps":5000},
-    )
-    selfcol_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"self_collision", "weight":1.0, "num_steps":5000},
-    )
+    grab1_low       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube1", "weight": 0.4, "num_steps": 16000})
+    drag1_low       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube1", "weight": 0.4, "num_steps": 16000})
+    grab1_off       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube1", "weight": 0.0, "num_steps": 30000})
+    drag1_off       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube1", "weight": 0.0, "num_steps": 30000})
+    goal_pot_off2   = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 1.5, "num_steps": 20000})
+    mount_c2_mid     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c2", "weight": 2.0, "num_steps": 20000})
 
-    # ── Phase D (30 000 steps+): full‐task weights & time‐penalty ─────────────
-    wall_full = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"wall_grasp", "weight":1.0, "num_steps":10_000},
-    )
-    cyl_full = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"cylinder_grasp", "weight":0.5, "num_steps":10_000},
-    )
-    selfcol_full = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"self_collision", "weight":0.2, "num_steps":10_000},
-    )
-    timepen_on = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"time_step_penalty", "weight":0.01, "num_steps":10_000},
-    )
+    # ─── Phase C (20k–30k): Cube 2 build-up ───
+    grab2_boost     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube2", "weight": 7.0, "num_steps": 22000})
+    drag2_boost     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube2", "weight": 7.0, "num_steps": 23000})
+    dock2_mid       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "gripper1_docking_cube2", "weight": 7.0, "num_steps": 24000})
+    mount_c1_fade   = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c1", "weight": 0.1, "num_steps": 25000})
 
-    # ── Always‐on smoothing terms ─────────────────────────────────────────────
-    joint_vel_l2 = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"joint_vel", "weight":1e-3, "num_steps":0},
-    )
-    action_rate_l2 = CurrTerm(
-        func=mdp.modify_reward_weight,
-        params={"term_name":"action_rate", "weight":1e-3, "num_steps":0},
-    )
+    # ─── Phase D (30k+): Full task + strict penalties ───
+    dock2_full       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "gripper1_docking_cube2", "weight": 10.0, "num_steps": 30000})
+    hold_far_strict  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "hold_far_cube_penalty_tight", "weight": 2.0, "num_steps": 30000})
+    wall_on          = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "wall_grasp", "weight": 6.0, "num_steps": 30000})
+    cyl_on           = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "cylinder_grasp", "weight": 1.5, "num_steps": 30000})
+    selfcol_on       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "self_collision", "weight": 1.2, "num_steps": 30000})
+    mount_c2_boost   = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c2", "weight": 3.0, "num_steps": 30000})
+    grab2_peak       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube2", "weight": 12.0, "num_steps": 30000})
+    drag2_peak       = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "drag_cube2", "weight": 12.0, "num_steps": 30000})
+    dock2_bonus      = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "gripper1_docking_cube2", "weight": 20.0, "num_steps": 35000})
+    goal_pot_on  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 20, "num_steps": 50000})
+
+    # ─── Always-on regularisation ───
+    joint_vel_l2    = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "joint_vel", "weight": 1e-3, "num_steps": 0})
+    action_rate_l2  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "action_rate", "weight": 1e-3, "num_steps": 0})
+
+
+
+
+# @configclass
+# class CurriculumCfg:
+#     """4‐phase curriculum for Skywalker mount‐grasping."""
+
+#     # ── Phase A (0 steps): only learn to grasp cube1 ───────────────────────────
+#     grab1_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"grab_cube1", "weight":7.0, "num_steps":0},
+#     )
+#     drag1_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"drag_cube1", "weight":7.0, "num_steps":0},
+#     )
+#     goal_potential_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"goal_potential1", "weight":0.0, "num_steps":0},
+#     )
+
+#     grab2_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"grab_cube2", "weight":0.0, "num_steps":0},
+#     )
+#     mount_c1_affinity = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"mount_affinity_c1", "weight":5.0, "num_steps":0},
+#     )
+#     wall_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"wall_grasp", "weight":1.0, "num_steps":0},
+#     )
+#         # 2) Turn on gripper1_docking_cube2 with full strength
+#     disable_gripper1_dock2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "gripper1_docking_cube2",
+#             "weight":    0.0,    # same as in RewardsCfg
+#             "num_steps": 0,
+#         },
+#     )
+#     cyl_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"cylinder_grasp", "weight":1.0, "num_steps":0},
+#     )
+#     selfcol_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"self_collision", "weight":1.0, "num_steps":0},
+#     )
+#     timepen_off = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"time_step_penalty", "weight":0.0, "num_steps":0},
+#     )
+
+#     # ── Phase B (10 000 steps): enable drag_cube1 and cube2 lure ──────────────
+
+#     grab1_down = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"grab_cube1", "weight":2, "num_steps":6000},
+#     )
+#     enable_dock2_soft = CurrTerm(
+#     func   = mdp.modify_reward_weight,
+#     params = {
+#         "term_name": "gripper1_docking_cube2",
+#         "weight":    4.0,     # gentle: far_penalty = −0.4 × 4 = −1.6 max
+#         "num_steps": 4000,    # ramp over 2 k env-steps (≈ 2 k / 1024 episodes)
+#     },
+# )
+#     mount_c1_affinity = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"mount_affinity_c1", "weight":3.0, "num_steps":4000},
+#     )
+#     grab2_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"grab_cube2", "weight":8.0, "num_steps":6000},
+#     )
+#     mount_c2_affinity = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"mount_affinity_c2", "weight":7.0, "num_steps":4000},
+#     )
+#     # ── Phase B tweaks (at 5 000 steps): sharpen the dock-zone penalty ──────────
+#     # turn OFF the old, wide penalty
+#     enable_hold_far = CurrTerm(
+#         func = mdp.modify_reward_weight,
+#         params = {
+#             "term_name":"hold_far_cube_penalty",
+#             "weight":    0.5,
+#             "num_steps": 6000,
+#         },
+#     )
+#     disable_hold_far = CurrTerm(
+#         func = mdp.modify_reward_weight,
+#         params = {
+#             "term_name":"hold_far_cube_penalty",
+#             "weight":    0.0,
+#             "num_steps": 8000,
+#         },
+#     )
+#     # turn ON the new, tight penalty
+#     enable_hold_far_tight = CurrTerm(
+#         func = mdp.modify_reward_weight,
+#         params = {
+#             "term_name":"hold_far_cube_penalty_tight",
+#             "weight":    2.0,       # choose whatever max penalty you prefer
+#             "num_steps": 8000,
+#         },
+#     )
+
+#     # ── Phase C (20 000 steps): ramp in wall & base/collision penalties ──────
+#     wall_ramp = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"wall_grasp", "weight":17, "num_steps":6000},
+#     )
+#     cyl_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"cylinder_grasp", "weight":1.0, "num_steps":6000},
+#     )
+#     selfcol_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"self_collision", "weight":1.0, "num_steps":6000},
+#     )
+#     fade_mount_c2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "mount_affinity_c2",
+#             "weight":    6.0,
+#             "num_steps": 6000,
+#         },
+#     )
+#     # 2) Turn on gripper1_docking_cube2 with full strength
+#     enable_gripper1_dock2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "gripper1_docking_cube2",
+#             "weight":    10.0,    # same as in RewardsCfg
+#             "num_steps": 6000,
+#         },
+#     )
+
+#     dock_near_cube2_low = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "dock_near_cube2",
+#             "weight":    3.0,    # same as in RewardsCfg
+#             "num_steps": 8000,
+#         },
+#     )
+#     fade_mount_c2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "mount_affinity_c2",
+#             "weight":    6.0,
+#             "num_steps": 8000,
+#         },
+#     )
+
+#     grab1_down = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"grab_cube1", "weight":1.5, "num_steps":8000},
+#     )
+#     mount_c1_affinity = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"mount_affinity_c1", "weight":1.0, "num_steps":6000},
+#     )
+#     drag1_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"drag_cube1", "weight":1.5, "num_steps":6000},
+#     )
+#     # grab1_down2 = CurrTerm(
+#     #     func=mdp.modify_reward_weight,
+#     #     params={"term_name":"grab_cube1", "weight":0.1, "num_steps":8000},
+#     # )
+#     # ── Phase D (30 000 steps+): full‐task weights & time‐penalty ─────────────
+#     wall_full = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"wall_grasp", "weight":7.0, "num_steps":13_000},
+#     )
+#     cyl_full = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"cylinder_grasp", "weight":1.5, "num_steps":13_000},
+#     )
+#     selfcol_full = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"self_collision", "weight":1.2, "num_steps":13_000},
+#     )
+
+#     enable_mount_c2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={
+#             "term_name": "mount_affinity_c2",
+#             "weight":   6,
+#             "num_steps": 13000,
+#         },
+#     )
+
+#     timepen_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"time_step_penalty", "weight":0.01, "num_steps":13_000},
+#     )
+#     goal_potential_on = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"goal_potential1", "weight":5.0, "num_steps":13000},
+#     )
+
+
+#     # ── Always‐on smoothing terms ─────────────────────────────────────────────
+#     joint_vel_l2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"joint_vel", "weight":1e-3, "num_steps":0},
+#     )
+#     action_rate_l2 = CurrTerm(
+#         func=mdp.modify_reward_weight,
+#         params={"term_name":"action_rate", "weight":1e-3, "num_steps":0},
+#     )
 
 
 

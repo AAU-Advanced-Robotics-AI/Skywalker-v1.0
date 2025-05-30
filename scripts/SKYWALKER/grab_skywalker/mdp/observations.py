@@ -15,6 +15,24 @@ from isaaclab.utils.math import subtract_frame_transforms
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+
+def is_cube1_grasped(env) -> torch.Tensor:
+    return is_cube_grasped(env,
+        cube_cfg=SceneEntityCfg("cube1"),
+        ee_cfg=SceneEntityCfg("ee_frame"),
+        grip_term="gripper_action")
+
+def is_cube2_grasped(env) -> torch.Tensor:
+    return is_cube_grasped(env,
+        cube_cfg=SceneEntityCfg("cube2"),
+        ee_cfg=SceneEntityCfg("ee_frame"),
+        grip_term="gripper_action")
+def cube2_relative_to_cube1(env) -> torch.Tensor:
+    c1_pos = cube_position_in_robot_root_frame(env, SceneEntityCfg("cube1"))  # (N,3)
+    c2_pos = cube_position_in_robot_root_frame(env, SceneEntityCfg("cube2"))  # (N,3)
+    return c2_pos - c1_pos  # (N,3)
+
+
 def ee_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -98,7 +116,7 @@ def goal_position_in_robot_root_frame(
     env: ManagerBasedRLEnv,
     robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     goal_cfg: SceneEntityCfg = SceneEntityCfg("goal_marker"),
-    radius: float = 0.7,
+    radius: float = 0.2,
 ) -> torch.Tensor:
     """Return the goal marker’s position in the robot’s root frame and
     debug-print it for the first 30 vectorised environments."""
@@ -187,4 +205,65 @@ def ee_to_cube2_distance(env) -> torch.Tensor:
     c2_pos = cube_position_in_robot_root_frame(
         env, cube_cfg=SceneEntityCfg("cube2"))                       # (N,3)
     return torch.norm(ee_pos - c2_pos, dim=1, keepdim=True)         # (N,1)
+
+
+
+def cube_grasp_counter_obs(
+    env: "ManagerBasedRLEnv",
+    cube_cfg: SceneEntityCfg,
+    grip_term: str = "gripper_action",
+    tol: float = 0.15,
+) -> torch.Tensor:
+    """
+    Per-env counter of how many times the gripper closed near a specific cube.
+    • Resets to 0 on env reset.
+    """
+
+    cube_name = cube_cfg.name
+    counter_key = f"_counter_{cube_name}"
+    prev_key    = f"_prev_closed_{cube_name}"
+
+    # Gripper state
+    grip = env.action_manager.get_term(grip_term)
+    is_closed = grip.is_closed().float()  # (N,)
+
+    # Get cube and EE position in world
+    cube = env.scene[cube_name]
+    ee   = env.scene["ee_frame"]
+    dist = torch.norm(ee.data.target_pos_w[..., 0, :] - cube.data.target_pos_w[..., 0, :], dim=1)
+    near = (dist < tol).float()  # (N,)
+
+    # Detect closing edge
+    if not hasattr(cube_grasp_counter_obs, prev_key):
+        setattr(cube_grasp_counter_obs, prev_key, is_closed.clone())
+    prev_closed = getattr(cube_grasp_counter_obs, prev_key)
+    just_closed = (is_closed > 0.5) & (prev_closed < 0.5)
+    setattr(cube_grasp_counter_obs, prev_key, is_closed.clone())
+
+    # Lazy-init counter
+    if not hasattr(cube_grasp_counter_obs, counter_key):
+        setattr(cube_grasp_counter_obs, counter_key, torch.zeros(env.num_envs, device=env.device))
+    counter = getattr(cube_grasp_counter_obs, counter_key)
+
+    # Increment where grasp event happened
+    counter += (just_closed * near)
+
+    # Reset on env reset
+    if hasattr(env, "reset_buf"):
+        reset_mask = (env.reset_buf > 0).float()
+        counter *= (1.0 - reset_mask)
+
+    # Save back
+    setattr(cube_grasp_counter_obs, counter_key, counter)
+
+    return counter.unsqueeze(1)
+
+
+def cube1_grasp_count(env): 
+    return cube_grasp_counter_obs(env, cube_cfg=SceneEntityCfg("cube1"))
+
+def cube2_grasp_count(env): 
+    return cube_grasp_counter_obs(env, cube_cfg=SceneEntityCfg("cube2"))
+
+
 
