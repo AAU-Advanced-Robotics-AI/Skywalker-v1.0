@@ -289,7 +289,8 @@ class RewardsCfg:
         func   = mdp.mount_affinity, weight = 0.0,
         params = {"cube_cfg": SceneEntityCfg("cube2"),
                   "std" : 0.35,
-                  "grip_term": "gripper_action"},
+                  "grip_term": "gripper_action",
+                  "dock_cfg":  SceneEntityCfg("goal_marker")},
     )
 
     # ── 4b) Dock gripper-1 onto cube2’s mounting point ───────────────────────────
@@ -484,7 +485,7 @@ class CurriculumCfg:
     dock_near_cube2_fade2      = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "dock_near_cube2", "weight": 1.0, "num_steps": 32000})
     goal_fade2_on  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 15, "num_steps": 40000})
 
-    mount_c2_off  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c2", "weight": 0.0, "num_steps": 45000})
+    mount_c2_off  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "mount_affinity_c2", "weight": 2.0, "num_steps": 45000})
     grab2_off      = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "grab_cube2", "weight": 2.0, "num_steps": 45000})
     dock_near_cube2_off     = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "dock_near_cube2", "weight": 0.0, "num_steps": 35000})
     goal_pot_on  = CurrTerm(func=mdp.modify_reward_weight, params={"term_name": "goal_potential1", "weight": 20, "num_steps": 45000})

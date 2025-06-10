@@ -202,5 +202,5 @@ class SkywalkerGrabEnvCfg_PLAY(SkywalkerGrabEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 50
-        self.scene.env_spacing = 2.5
+        self.scene.env_spacing = 6
         self.observations.policy.enable_corruption = False
