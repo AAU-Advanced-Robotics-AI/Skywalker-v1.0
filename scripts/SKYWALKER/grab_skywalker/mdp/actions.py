@@ -226,7 +226,7 @@ class SurfaceGripperActionTerm(ActionTerm):
         self._processed_actions[env_ids] = False
         self._gripper_timers[env_ids] = 0
         self._shared_gripper_state_timer[env_ids] = 0
-
+        
 
         # Force-open each gripper to fully reset its physical state
         for env_id in env_ids:

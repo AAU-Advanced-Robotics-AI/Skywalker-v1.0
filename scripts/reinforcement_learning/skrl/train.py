@@ -16,6 +16,7 @@ import carb
 import os
 from isaaclab.app import AppLauncher
 
+
 # --------------------------------------------------------------------
 # 1) Define and parse arguments (including --video) as before
 # --------------------------------------------------------------------
@@ -135,7 +136,6 @@ import reach_skywalker.config.xarm7
 import reach.config.franka
 import skywalker_main.config.xarm7
 
-
 import sys
 
 from isaaclab.utils.assets import retrieve_file_path
@@ -198,8 +198,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # get checkpoint path
     resume_path = retrieve_file_path(args_cli.checkpoint) if args_cli.checkpoint else None
 
+    print("DEBUG cfg class:", type(env_cfg))
+    print("DEBUG env_cfg.env_cls =", getattr(env_cfg, "env_cls", None))
+
+
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    f"Loader built {type(env.unwrapped)}, expected SkywalkerGrabEnv"
 
     if isinstance(env.unwrapped, DirectMARLEnv) and algorithm in ["ppo"]:
         env = multi_agent_to_single_agent(env)

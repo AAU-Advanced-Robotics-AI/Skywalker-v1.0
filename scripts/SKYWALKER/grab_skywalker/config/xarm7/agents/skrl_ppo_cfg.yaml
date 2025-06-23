@@ -1,6 +1,4 @@
 seed: 42
-
-
 # Models are instantiated using skrl's model instantiator utility
 # https://skrl.readthedocs.io/en/latest/api/utils/model_instantiators.html
 models:
@@ -10,7 +8,7 @@ models:
     clip_actions: True
     clip_log_std: True
     min_log_std: -20.0
-    max_log_std: 2.0
+    max_log_std: 1.5
     initial_log_std: 1.0
     network:
       - name: net
@@ -45,7 +43,7 @@ agent:
   mini_batches: 8 # controls how often the agent gets to update its parameters based on different parts of the data.
   discount_factor: 0.99 # how much the agent cares about future rewards vs. immediate rewards.
   lambda: 0.95 #?
-  learning_rate: 1.0e-04 #3.0e-04 # how much the model updates its parameters with each training step. was 1.0e-04
+  learning_rate: 3.0e-04 #3.0e-04 # how much the model updates its parameters with each training step. was 1.0e-04
   learning_rate_scheduler: KLAdaptiveLR # adjusts the learning rate during training based on the KL divergence between the old and new policy
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.04 #0.04 #was 0.03
@@ -59,10 +57,10 @@ agent:
   ratio_clip: 0.2 # limit the difference between the old and new policy updates,
   value_clip: 0.2 #clips the value function estimates during training
   clip_predicted_values: True #clips the predicted value function to avoid large updates.
-  entropy_loss_scale: 0.02 #Controls how much the agent is encouraged to explore.
+  entropy_loss_scale: 0.03 #Controls how much the agent is encouraged to explore.
   value_loss_scale: 1.0 # determines how much the value loss influences the overall loss.
   #kl_threshold: 0.08
-  rewards_shaper_scale: 0.05 #If rewards are too small to be effective, increase this value (e.g., from 1.0 to 2.0). was at o.05
+  rewards_shaper_scale: 1 #If rewards are too small to be effective, increase this value (e.g., from 1.0 to 2.0). was at o.05
   time_limit_bootstrap: False
   # logging and checkpoint
   experiment:
@@ -75,5 +73,5 @@ agent:
 # https://skrl.readthedocs.io/en/latest/api/trainers/sequential.html
 trainer:
   class: SequentialTrainer
-  timesteps: 60000
+  timesteps: 300000
   environment_info: log

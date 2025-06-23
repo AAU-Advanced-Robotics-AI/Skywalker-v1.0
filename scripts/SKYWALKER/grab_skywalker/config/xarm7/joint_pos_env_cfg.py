@@ -3,8 +3,8 @@ from isaaclab.utils import configclass
 from grab_skywalker.skywalker_grab_env import GrabEnvCfg
 from grab_skywalker.xarm7 import XARM7_CFG
 
-
-
+from isaaclab.envs import ManagerBasedRLEnv
+from typing import Type
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg, AssetBaseCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
@@ -19,6 +19,8 @@ from isaaclab.sensors.frame_transformer.frame_transformer_cfg import (
     FrameTransformerCfg,
     OffsetCfg,
 )
+
+
 import grab_skywalker.mdp as mdp
 from math import sqrt
 BASE_DIR = os.path.dirname(__file__)
@@ -28,6 +30,7 @@ USD_PATH  = os.path.join(BASE_DIR, "wall_cube2.02.usd")
 class SkywalkerGrabEnvCfg(GrabEnvCfg):
     def __post_init__(self):
         super().__post_init__()
+        
 
         # ── Spawn the robot with self-collision ON ───────────────────────────────
 
