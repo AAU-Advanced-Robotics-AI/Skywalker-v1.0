@@ -1,0 +1,9 @@
+Sure but ill just incase explain what im trying to do. 
+
+1. The robot has its end effector welded to an anchor point meaning it will not move. This is done as we have a fricitonless environment and we want the robot drag its base to goal positions. This also means that the end effector is a good refrence frame for everything as it does not move and when we apply this to the real robot then we can simply use kinematics to find out where the base is and how much it has moved, hence why we want to use it as a refrence frame for the observations and rewards.
+
+2. The base is not allowed to be tilted. That is both dangerous for the floor and robot. This is why we were trying to make it so that the robot cannot move at the start of an episode so spawning it in wouldnt have a large effect and also why we have a bunch of penalties for moving the base in a way that ends up tilting the base e.g. tilting it or lifting it. 
+
+3. The main movement goal is to get to the target position set by the UniformPoseCommandCfg. However we also want to spawn in a new goal during the same episode after the agent has kept the base at the previous goal for a second or 2. The problems here is that we want to spawn this next goal in the same area set by the UniformPoseCommandCfg in the start of the episode so that we do not use the link_base after it has relocated as it might set the goal in an area outside of the robots workspace. Another thing is that we have tried to make this dwell_time_success_reward_ee_relative reward with the idea that when we stay in the goal area then we get the highest possible reward in the whole scene but for some reason now it does not seem to be working. 
+
+Does that all make sense, and is that what we are doing now?
