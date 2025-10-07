@@ -1,0 +1,650 @@
+#!/usr/bin/env python3
+"""
+Interactive Base Move Robot Control
+
+- Loads a TorchScript policy exported by base_move_export.py (it embeds obs normalization).
+- Builds the 35-D observation exactly like NEW base_move training:
+  [joint_pos(7), joint_vel(7), base_pos_rel_ee(3), base_quat_rel_ee(4), target_pose_command(7), actions(7)]
+- Uses EE-relative coordinate system for better real robot deployment consistency.
+- Uses ABSOLUTE joint targets like training: q_target = default_jo                                                       print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🏠 Initial base position: {initial_base_pos.cpu().numpy()}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")
+            print(f"🎯 EE current: {ee_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target relative to EE: {target_pos_relative_to_ee[0].cpu().numpy()}")
+            print(f"🎯 EE-relative magnitude: {torch.norm(target_pos_relative_to_ee[0][:2]).item():.3f}m")
+            print(f"🤖 Arm reach: 700mm, Current XY error: {base_to_target_xy*1000:.1f}mm")print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🏠 Initial base position: {initial_base_pos.cpu().numpy()}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")rint(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")
+            print(f"🎯 EE current: {ee_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target relative to EE: {target_pos_relative_to_ee[0].cpu().numpy()}")
+            print(f"🎯 EE-relative magnitude: {torch.norm(target_pos_relative_to_ee[0][:2]).item():.3f}m")
+            print(f"🤖 Arm reach: 700mm, Current XY error: {base_to_target_xy*1000:.1f}mm")
+            
+            # Success indicators based on training criteriaget_3d = torch.norm(target_pos_absolute[0] - base_pos_w[0]).item()
+            
+            print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")
+            print(f"🎯 EE current: {ee_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target relative to EE: {target_pos_relative_to_ee[0].cpu().numpy()}")
+            print(f"🎯 EE-relative magnitude: {torch.norm(target_pos_relative_to_ee[0][:2]).item():.3f}m")int(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")
+            print(f"🎯 EE current: {ee_pos_w[0].cpu().numpy()}")  print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")      print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")    print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🏠 Initial base position: {initial_base_pos.cpu().numpy()}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")    print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")       print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")    print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"🏠 Initial base position: {initial_base_pos.cpu().numpy()}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")s + 0.5 * action
+- Loads the welding scene USD and controls the robot base to move to commanded positions.
+- Lets you type targets via /tmp/base_move_commands.txt.
+
+This version controls the BASE position, not the end-effector like the PTP agent.
+"""
+
+import argparse
+import os
+import math
+import numpy as np
+import torch
+from scipy.spatial.transform import Rotation
+
+# Isaac Lab / Sim
+from isaaclab.app import AppLauncher
+
+# --------------------------- CLI ---------------------------
+parser = argparse.ArgumentParser(description="Interactive base move robot control")
+parser.add_argument(
+    "--model_path",
+    type=str,
+    default="scripts/SKYWALKER/grab_skywalker/exported_models/base_move_policy.pt",
+    help="Path to exported TorchScript model",
+)
+AppLauncher.add_app_launcher_args(parser)
+args_cli = parser.parse_args()
+
+# --------------------------- Launch Isaac Sim ---------------------------
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+import isaaclab.sim as sim_utils
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
+from isaaclab.actuators import ImplicitActuatorCfg
+from isaaclab.scene import InteractiveSceneCfg, InteractiveScene
+from isaaclab.utils import configclass
+from isaaclab.markers import VisualizationMarkers
+from isaaclab.markers.config import FRAME_MARKER_CFG
+
+# --------------------------- Scene Configuration ---------------------------
+USD_SCENE = "/home/bruno/IsaacLab/scripts/SKYWALKER/welding_scene3.usd"
+
+@configclass
+class BaseMoveInteractiveSceneCfg(InteractiveSceneCfg):
+    """Interactive scene exactly matching base_move training."""
+
+    num_envs: int = 1
+    env_spacing: float = 2.0
+
+    # Load scene once per env at a shallow mount point
+    welding_scene = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/WeldingScene",
+        spawn=UsdFileCfg(usd_path=USD_SCENE),
+    )
+
+    # Wrap existing robot (NO spawning). Do NOT target 'world_joint' — it doesn't exist.
+    robot = ArticulationCfg(
+        prim_path="{ENV_REGEX_NS}/WeldingScene/skywalker_robot/xarm7",
+        spawn=None,  # robot already exists inside your scene.usd
+        init_state=ArticulationCfg.InitialStateCfg(
+            # Values from Physics Inspector after anchor height adjustment:
+            joint_pos={
+                "joint1":  0.01221730,   # 0.7°
+                "joint2": -0.04014257,   # -2.3°
+                "joint3":  0.01221730,   # 0.7°
+                "joint4":  0.53929221,   # 30.9°
+                "joint5":  0.01221730,   # 0.7°
+                "joint6": -1.00356287,   # -57.5°
+                "joint7":  0.0,          # 0°
+            }
+        ),
+        # IMPORTANT: For base movement, we need the robot to be mobile
+        # This may require modifying the welding constraint in the USD
+        actuators = {
+            # big base joints
+            "j1_j2": ImplicitActuatorCfg(
+                joint_names_expr=["joint1", "joint2"],
+                effort_limit_sim=179.4445,        # N·m (per joint cap)
+                velocity_limit_sim=3.0,           # rad/s (set to your real speed if you have it)
+                stiffness=600.0,                  # PD gains you can tune
+                damping=40.0,
+            ),
+            # mid joints
+            "j3": ImplicitActuatorCfg(
+                joint_names_expr=["joint3"],
+                effort_limit_sim=92.0,
+                velocity_limit_sim=3.0,
+                stiffness=600.0,
+                damping=40.0,
+            ),
+            "j4": ImplicitActuatorCfg(
+                joint_names_expr=["joint4"],
+                effort_limit_sim=92.0,
+                velocity_limit_sim=3.0,
+                stiffness=600.0,
+                damping=40.0,
+            ),
+            "j5": ImplicitActuatorCfg(
+                joint_names_expr=["joint5"],
+                effort_limit_sim=81.6,
+                velocity_limit_sim=3.0,
+                stiffness=500.0,
+                damping=35.0,
+            ),
+            # wrist joints
+            "j6_j7": ImplicitActuatorCfg(
+                joint_names_expr=["joint6", "joint7"],
+                effort_limit_sim=30.6,
+                velocity_limit_sim=4.0,
+                stiffness=400.0,
+                damping=30.0,
+            ),
+        },
+        # Set soft_joint_pos_limits_sim to allow base movement
+        soft_joint_pos_limit_factor=1.0,
+    )
+
+    # (optional) handles to existing rigid bodies if you need them
+    wall = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/WeldingScene/WallAssembly/wall",
+        spawn=None,
+    )
+    anchor = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/WeldingScene/WallAssembly/anchor",
+        spawn=None,
+    )
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/SkyDome",
+        spawn=sim_utils.DomeLightCfg(
+            intensity=1500.0,
+            visible_in_primary_ray=False,   # hide HDRI in the background
+        ),
+    )
+
+    target_pose_marker = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/target_pose_marker",
+        spawn=sim_utils.SphereCfg(
+            radius=0.05,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.01),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),  # visual-only
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.15, 0.85, 0.2)),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.0), rot=(1, 0, 0, 0)),  # Back to 0.0 - positions are relative
+    )
+
+# --------------------------- EE-relative observation helpers ---------------------------
+def base_position_relative_to_ee(robot):
+    """
+    Returns base position relative to end-effector (3D).
+    Matches the base_move_functions.py implementation exactly.
+    """
+    try:
+        # Get EE position in world frame
+        ee_indices = robot.find_bodies("link_eef")  # End-effector link
+        base_indices = robot.find_bodies("link_base")  # Base link
+        
+        if ee_indices and base_indices:
+            # Handle different return formats from find_bodies
+            if isinstance(ee_indices, tuple):
+                ee_idx = ee_indices[0][0] if isinstance(ee_indices[0], list) else ee_indices[0]
+            else:
+                ee_idx = ee_indices[0] if isinstance(ee_indices, list) else ee_indices
+                
+            if isinstance(base_indices, tuple):
+                base_idx = base_indices[0][0] if isinstance(base_indices[0], list) else base_indices[0]
+            else:
+                base_idx = base_indices[0] if isinstance(base_indices, list) else base_indices
+            
+            ee_idx = int(ee_idx)
+            base_idx = int(base_idx)
+            
+            if hasattr(robot.data, "body_pos_w"):
+                ee_pos_w = robot.data.body_pos_w[:, ee_idx, :3]      # (1, 3)
+                base_pos_w = robot.data.body_pos_w[:, base_idx, :3]  # (1, 3)
+                return base_pos_w - ee_pos_w  # Base relative to EE
+            else:
+                print("⚠️ Warning: Robot data missing body_pos_w")
+        else:
+            print("⚠️ Warning: Could not find EE or base body indices")
+    except Exception as e:
+        print(f"⚠️ Warning: Exception in base_position_relative_to_ee: {e}")
+
+    # Fallback: zero relative position
+    return torch.zeros((1, 3), device=robot.device, dtype=torch.float32)
+
+def ee_position_w(robot):
+    """
+    Returns end-effector position in world coordinates.
+    """
+    try:
+        ee_indices = robot.find_bodies("link_eef")
+        if ee_indices:
+            ee_idx = ee_indices[0][0] if isinstance(ee_indices[0], (list, tuple)) else ee_indices[0]
+            return robot.data.body_pos_w[:, ee_idx, :3]  # (1,3)
+    except Exception:
+        pass
+    return torch.zeros((1, 3), device=robot.device, dtype=torch.float32)
+
+def base_orientation_relative_to_ee(robot):
+    """
+    Returns base orientation relative to end-effector (4D quaternion).
+    Matches the base_move_functions.py implementation exactly.
+    """
+    try:
+        # Get EE and base orientations in world frame
+        ee_indices = robot.find_bodies("link_eef")  # End-effector link
+        base_indices = robot.find_bodies("link_base")  # Base link
+        
+        if ee_indices and base_indices:
+            # Handle different return formats from find_bodies
+            if isinstance(ee_indices, tuple):
+                ee_idx = ee_indices[0][0] if isinstance(ee_indices[0], list) else ee_indices[0]
+            else:
+                ee_idx = ee_indices[0] if isinstance(ee_indices, list) else ee_indices
+                
+            if isinstance(base_indices, tuple):
+                base_idx = base_indices[0][0] if isinstance(base_indices[0], list) else base_indices[0]
+            else:
+                base_idx = base_indices[0] if isinstance(base_indices, list) else base_indices
+            
+            ee_idx = int(ee_idx)
+            base_idx = int(base_idx)
+            
+            if hasattr(robot.data, "body_quat_w"):
+                ee_quat_w = robot.data.body_quat_w[:, ee_idx, :]     # (1, 4) [w,x,y,z]
+                base_quat_w = robot.data.body_quat_w[:, base_idx, :] # (1, 4) [w,x,y,z]
+                
+                # Compute relative quaternion: q_rel = q_base * q_ee^(-1)
+                # For inverse: q^(-1) = [w, -x, -y, -z] / ||q||^2, but since ||q||=1, just negate xyz
+                ee_quat_inv = torch.cat([ee_quat_w[:, 0:1], -ee_quat_w[:, 1:4]], dim=1)  # (1, 4)
+                
+                # Quaternion multiplication: q1 * q2
+                w1, x1, y1, z1 = base_quat_w[:, 0], base_quat_w[:, 1], base_quat_w[:, 2], base_quat_w[:, 3]
+                w2, x2, y2, z2 = ee_quat_inv[:, 0], ee_quat_inv[:, 1], ee_quat_inv[:, 2], ee_quat_inv[:, 3]
+                
+                w = w1*w2 - x1*x2 - y1*y2 - z1*z2
+                x = w1*x2 + x1*w2 + y1*z2 - z1*y2
+                y = w1*y2 - x1*z2 + y1*w2 + z1*x2
+                z = w1*z2 + x1*y2 - y1*x2 + z1*w2
+                
+                return torch.stack([w, x, y, z], dim=1)  # (1, 4) [w,x,y,z]
+            else:
+                print("⚠️ Warning: Robot data missing body_quat_w")
+        else:
+            print("⚠️ Warning: Could not find EE or base body indices")
+    except Exception as e:
+        print(f"⚠️ Warning: Exception in base_orientation_relative_to_ee: {e}")
+
+    # Fallback: identity quaternion (no relative rotation)
+    return torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=robot.device, dtype=torch.float32)
+
+def get_base_pose_world_for_marker(robot):
+    """
+    Helper to get absolute base position for marker visualization.
+    """
+    try:
+        base_indices = robot.find_bodies("link_base")
+        if base_indices:
+            # Handle different return formats from find_bodies
+            if isinstance(base_indices, tuple):
+                base_idx = base_indices[0][0] if isinstance(base_indices[0], list) else base_indices[0]
+            else:
+                base_idx = base_indices[0] if isinstance(base_indices, list) else base_indices
+            
+            base_idx = int(base_idx)
+            
+            if hasattr(robot.data, "body_pos_w") and hasattr(robot.data, "body_quat_w"):
+                pos = robot.data.body_pos_w[:, base_idx, :3]
+                quat = robot.data.body_quat_w[:, base_idx, :]  # [w,x,y,z]
+                return pos, quat
+    except Exception as e:
+        print(f"⚠️ Warning: Exception getting base pose for marker: {e}")
+    
+    # Fallback
+    return torch.zeros((1, 3), device=robot.device), torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=robot.device)
+
+# --------------------------- xArm7 limits ---------------------------
+def get_xarm7_limits(device: torch.device):
+    limits_low  = torch.tensor(
+        [-6.283185307179586,
+         -2.0589999996956756,
+         -6.283185307179586,
+         -0.19197993453406906,
+         -6.283185307179586,
+         -1.6929698980332752,
+         -6.283185307179586],
+        device=device, dtype=torch.float32
+    )
+    limits_high = torch.tensor(
+        [ 6.283185307179586,
+          2.0943998147821756,
+          6.283185307179586,
+          3.9269998926993517,
+          6.283185307179586,
+          3.141592653589793,
+          6.283185307179586],
+        device=device, dtype=torch.float32
+    )
+    return limits_low, limits_high
+
+# --------------------------- Command controller ---------------------------
+class BaseMoveController:
+    """Handles user input for new base target positions via a text file."""
+
+    def __init__(self):
+        # Default target position (relative to base, like in training)
+        self.target_position = [-0.1, 0.0, 0.0]        # XY displacement relative to current base (Z=0 for planar movement)
+        self.target_orientation = [0.0, 0.0, 0.0]    # RPY in radians
+        self.new_target = False
+        self.running = True
+        self.command_file = "/tmp/base_move_commands.txt"
+        self.last_command_time = 0
+        self.create_command_file()
+
+    def create_command_file(self):
+        with open(self.command_file, "w") as f:
+            f.write("# Base Move Commands (relative to INITIAL BASE like training):\n")
+            f.write("#   goto DX DY YAW  (e.g., goto -0.1 0.0 0.0)\n")
+            f.write("#   quit\n\n")
+            f.write("# Displacement ranges (relative to initial base position):\n")
+            f.write("#   DX: -0.15..0.0 (backward/forward)\n")
+            f.write("#   DY: -0.35..0.35 (left/right)\n")
+            f.write("#   YAW: -0.9..0.9 (rotation)\n")
+            f.write("#   Note: Targets placed relative to initial base like training environment\n")
+        self.last_command_time = os.path.getmtime(self.command_file)
+
+    def check_for_commands(self):
+        try:
+            t = os.path.getmtime(self.command_file)
+            if t > self.last_command_time:
+                self.last_command_time = t
+                with open(self.command_file, "r") as f:
+                    lines = f.readlines()
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        self.process_command(line)
+                        break
+        except FileNotFoundError:
+            self.create_command_file()
+        except Exception as e:
+            print(f"Error reading command file: {e}")
+
+    def process_command(self, command: str):
+        if command == "quit":
+            self.running = False
+            print("🛑 Quit command received!")
+            return
+        if command.startswith("goto"):
+            parts = command.split()
+            if len(parts) == 4:
+                try:
+                    x, y, yaw = float(parts[1]), float(parts[2]), float(parts[3])
+                    self.target_position = [x, y, 0.0]  # Z always 0 for base movement
+                    self.target_orientation = [0.0, 0.0, yaw]  # Only yaw rotation
+                    self.new_target = True
+                    print(f"🎯 New base target: pos=[{x:.3f}, {y:.3f}, 0.0], yaw={yaw:.3f}")
+                except ValueError:
+                    print(f"❌ Invalid coordinates: {parts[1:]}")
+            else:
+                print(f"❌ Usage: goto DX DY YAW (relative displacement)")
+        else:
+            print(f"❌ Unknown command: {command}")
+
+# --------------------------- Main ---------------------------
+def main():
+    print("🤖 INTERACTIVE Base Move Robot Control")
+    print(f"📁 Model: {args_cli.model_path}")
+    print("=" * 60)
+
+    # ---- Load TorchScript model ----
+    try:
+        model = torch.jit.load(args_cli.model_path, map_location="cpu")
+        model.eval()
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+        print("✅ Model loaded.")
+    except Exception as e:
+        print(f"❌ Failed to load model: {e}")
+        return
+
+    # ---- Setup simulation ----
+    print("🌍 Setting up Isaac Sim...")
+    sim_cfg = sim_utils.SimulationCfg(dt=0.01, render_interval=2)
+    sim = sim_utils.SimulationContext(sim_cfg)
+
+    print("🤖 Spawning robot...")
+    scene_cfg = BaseMoveInteractiveSceneCfg()
+    scene = InteractiveScene(scene_cfg)
+
+    print("🔄 Initializing...")
+    sim.reset()
+    scene.reset()
+
+    robot = scene["robot"]
+    target_marker = scene["target_pose_marker"]
+
+    # Try to locate base body index
+    try:
+        base_indices = robot.find_bodies("link_base")
+        BASE_IDX = int(base_indices[0]) if base_indices else 0
+    except Exception:
+        BASE_IDX = 0
+    print(f"Using base body index: {BASE_IDX}")
+
+    # Set neutral starting pose
+    try:
+        neutral = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],
+                               device=robot.device, dtype=torch.float32)
+        robot.set_joint_position_target(neutral)
+        print("✅ Set neutral joint pose.")
+    except Exception as e:
+        print(f"⚠️ Could not set neutral pose: {e}")
+
+    # Controller + runtime buffers
+    controller = BaseMoveController()
+    last_action = torch.zeros((1, 7), device=robot.device, dtype=torch.float32)
+
+    # Joint limits for clamping
+    xarm_low, xarm_high = get_xarm7_limits(robot.device)
+
+    # ---- Helper to build observation like training ----
+    def build_base_move_obs():
+        """
+        Build 35-D observation vector exactly like NEW base_move training:
+        [joint_pos(7), joint_vel(7), base_pos_rel_ee(3), base_quat_rel_ee(4), target_pose_command(7), actions(7)]
+        """
+        # Joint state (relative to defaults)
+        joint_pos = robot.data.joint_pos[:, :7] - robot.data.default_joint_pos[:, :7]  # (1,7)
+        joint_vel = robot.data.joint_vel[:, :7] - robot.data.default_joint_vel[:, :7]  # (1,7)
+
+        # 🎯 NEW: EE-relative observations (matches updated training)
+        base_pos_rel_ee = base_position_relative_to_ee(robot)       # (1,3) - base position relative to EE
+        base_quat_rel_ee = base_orientation_relative_to_ee(robot)   # (1,4) - base orientation relative to EE
+
+        # Target pose command (MATCH training coordinate system exactly)
+        # Training places targets near wall (X≈17.8-18.0) in environment-local coordinates
+        base_pos_w, _ = get_base_pose_world_for_marker(robot)  # Get current base world position
+        ee_pos_w = ee_position_w(robot)  # Get current EE world position
+        
+        # INITIAL BASE POSITION (match training environment coordinate system)
+        # Training uses targets relative to initial base position, not current position
+        if not hasattr(scene, '_initial_base_pos'):
+            # Store initial base position on first use (like training environment)
+            scene._initial_base_pos = base_pos_w[0].clone().detach()
+        initial_base_pos = scene._initial_base_pos
+        
+        # Create target relative to initial base position (matching training)
+        input_displacement = torch.tensor([controller.target_position], device=robot.device, dtype=torch.float32)
+        target_pos_absolute = initial_base_pos + input_displacement  # Place relative to initial base like training
+        
+        # Convert to EE-relative (this should now be similar to training magnitudes)
+        target_pos_relative_to_ee = target_pos_absolute - ee_pos_w
+        
+        # Convert RPY to quaternion [w,x,y,z]
+        r = Rotation.from_euler("xyz", controller.target_orientation)
+        tq_xyzw_np = np.asarray(r.as_quat(), dtype=np.float32)  # [x,y,z,w] scipy format
+        tq_xyzw = torch.from_numpy(tq_xyzw_np).unsqueeze(0).to(robot.device)  # (1,4)
+        target_quat = torch.cat([tq_xyzw[:, 3:4], tq_xyzw[:, :3]], dim=1)  # (1,4) [w,x,y,z]
+        
+        target_pose_command = torch.cat([target_pos_relative_to_ee, target_quat], dim=1)  # (1,7)
+
+        # Debug: Print coordinate transformation (every 100 steps to avoid spam)
+        if step_count % 100 == 0:
+            # Calculate base-to-target distance (what actually matters for success)
+            base_to_target_xy = torch.norm(target_pos_absolute[0][:2] - base_pos_w[0][:2]).item()
+            base_to_target_3d = torch.norm(target_pos_absolute[0] - base_pos_w[0]).item()
+            
+            print(f"🎯 Input displacement: {controller.target_position}")
+            print(f"�️ Wall reference: {wall_position.cpu().numpy()}")
+            print(f"🎯 Base current: {base_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target absolute: {target_pos_absolute[0].cpu().numpy()}")
+            print(f"📏 Base-to-target XY: {base_to_target_xy*1000:.1f}mm")
+            print(f"📏 Base-to-target 3D: {base_to_target_3d*1000:.1f}mm")
+            print(f"🎯 EE current: {ee_pos_w[0].cpu().numpy()}")
+            print(f"🎯 Target relative to EE: {target_pos_relative_to_ee[0].cpu().numpy()}")
+            print(f"🎯 EE-relative magnitude: {torch.norm(target_pos_relative_to_ee[0][:2]).item():.3f}m")
+            print(f"🤖 Arm reach: 700mm, Current XY error: {base_to_target_xy*1000:.1f}mm")
+            
+            # Success indicators based on training criteria
+            success_70mm = "✅ SUCCESS" if base_to_target_xy*1000 <= 70 else "❌ Not reached"
+            success_15mm = "🎯 PRECISE" if base_to_target_xy*1000 <= 15 else ""
+            print(f"📊 Success (70mm): {success_70mm} {success_15mm}")
+            print("=" * 60)
+
+        # Update target marker visualization (need absolute position for marker)
+        marker_pos = target_pos_absolute  # Show absolute target position
+        try:
+            target_marker.write_root_pose_to_sim(
+                torch.cat([marker_pos, target_quat], dim=1),
+                env_ids=torch.tensor([0], device=robot.device)
+            )
+        except Exception:
+            # Try alternative method
+            try:
+                target_marker.write_root_state_to_sim(
+                    torch.cat([marker_pos, target_quat, torch.zeros_like(marker_pos), torch.zeros_like(marker_pos)], dim=1),
+                    env_ids=torch.tensor([0], device=robot.device)
+                )
+            except Exception as e:
+                pass  # Skip marker updates if both methods fail
+
+        # Concatenate all observation components (35-D total)
+        obs = torch.cat([
+            joint_pos,           # 7
+            joint_vel,           # 7  
+            base_pos_rel_ee,     # 3 - 🎯 NEW: EE-relative base position
+            base_quat_rel_ee,    # 4 - 🎯 NEW: EE-relative base orientation
+            target_pose_command, # 7
+            last_action,         # 7
+        ], dim=1)  # (1, 35)
+
+        return obs
+
+    print("🎮 BASE MOVE ROBOT READY!")
+    print("Edit /tmp/base_move_commands.txt (e.g., 'goto 0.2 -0.1 0.3')")
+    step_count = 0
+
+    try:
+        while simulation_app.is_running() and controller.running:
+            # Check for new commands
+            controller.check_for_commands()
+
+            # Build observation
+            obs = build_base_move_obs()
+
+            # Get action from policy (same as PTP controller)
+            with torch.no_grad():
+                policy_out = model(obs)  # raw means (unbounded during training)
+            raw_action = policy_out[:, :7]  # this is what training logged as "last_action"
+
+            # Update last action for next observation (use raw_action exactly like PTP)
+            last_action.copy_(raw_action)
+
+            # ---- ABSOLUTE TARGET like training (same as PTP controller):
+            # q_target = default + 0.5 * action  (no delta, no wrap)
+            q_default = robot.data.default_joint_pos[:, :7]   # (1,7)
+            target_joint_pos = q_default + 0.5 * raw_action
+
+            # ---- Safety: clamp to USD soft limits (same method as PTP controller)
+            target_joint_pos = torch.max(torch.min(target_joint_pos, xarm_high), xarm_low)
+
+            # ---- Apply command, then step sim (same as PTP controller)
+            robot.set_joint_position_target(target_joint_pos)
+            scene.write_data_to_sim()
+            sim_utils.SimulationContext.instance().step(render=True)
+            scene.update(0.01)
+            robot.update(sim.get_physics_dt())
+
+            # Periodic status
+            step_count += 1
+            if step_count % 100 == 0:
+                base_pos, _ = get_base_pose_world_for_marker(robot)  # Get absolute base position for status
+                target_abs = base_pos + torch.tensor([controller.target_position], device=robot.device)
+                distance = torch.norm(base_pos - target_abs, dim=1).item()
+                
+                # Show EE-relative observations for debugging
+                base_rel_ee = base_position_relative_to_ee(robot)
+                
+                # Debug action ranges (like PTP controller)
+                ra_min = raw_action.min().item()
+                ra_max = raw_action.max().item()
+                raw_act = raw_action[0].detach().cpu().numpy()
+                q_def = q_default[0].detach().cpu().numpy()
+                tgt = target_joint_pos[0].detach().cpu().numpy()
+                jp = robot.data.joint_pos[0, :7].detach().cpu().numpy()
+                
+                print(f"Step {step_count:4d} | "
+                      f"Base: [{base_pos[0,0]:.3f}, {base_pos[0,1]:.3f}, {base_pos[0,2]:.3f}] | "
+                      f"Target: [{target_abs[0,0]:.3f}, {target_abs[0,1]:.3f}, {target_abs[0,2]:.3f}] | "
+                      f"Dist: {distance:.3f}m")
+                print(f"🎯 EE-relative base pos: [{base_rel_ee[0,0]:.3f}, {base_rel_ee[0,1]:.3f}, {base_rel_ee[0,2]:.3f}]")
+                print(f"🔍 raw_action range: [{ra_min:.3f}, {ra_max:.3f}]")
+                print(f"DEBUG - default pos {np.round(q_def, 3)}")
+                print(f"DEBUG - Current joint pos: {np.round(jp, 3)}")
+                print(f"DEBUG - raw action: {np.round(raw_act, 3)}")
+                print(f"DEBUG - processed action (default + 0.5*action): {np.round(tgt, 3)}")
+
+    except KeyboardInterrupt:
+        print("\n⏹️ Stopped by user")
+
+    print("🏁 Interactive base move control session ended!")
+    simulation_app.close()
+
+if __name__ == "__main__":
+    main()
